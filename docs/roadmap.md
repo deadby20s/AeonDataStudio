@@ -9,7 +9,7 @@ Milestones are ordered; each one should leave the app usable.
 - [x] `shared` crate for types used by both frontend and backend.
 - [x] Error-safe `invoke` wrapper and a typed `api` module.
 - [x] Background job runner with progress events and cancellation.
-- [ ] Initialize git; commit `Cargo.lock`. (`.gitignore` no longer excludes `Cargo.lock`; `git init` still to do.)
+- [x] Initialize git; commit `Cargo.lock`.
 
 ## M1: Import and browse
 - [ ] Import JSONL, TXT, CSV, Parquet (including `.gz` / `.zst`) into Parquet datasets.
