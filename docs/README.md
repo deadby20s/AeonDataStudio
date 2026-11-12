@@ -4,9 +4,9 @@ AeonDataStudio is a personal desktop data studio for preparing text datasets for
 pretraining AI models. It runs locally as a Tauri 2 app, with a Rust backend and a
 Leptos (WebAssembly) frontend.
 
-> **Status:** early. Milestone M0 is done: app shell, workspaces with a SQLite catalog, and a
-> background job runner. No data processing exists yet. These docs describe the intended
-> design so implementation has a clear target; anything not yet built is marked *planned*.
+> **Status:** early. Milestones M0 and M1 are done: workspaces, a background job runner,
+> importing data into Parquet datasets, stats, and a document browser with search. Cleaning
+> (M2) is next. Anything not yet built is marked *planned*.
 
 ## Contents
 

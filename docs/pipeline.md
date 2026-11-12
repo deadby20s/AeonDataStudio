@@ -12,20 +12,41 @@ Ingest → Normalize → Filter → Deduplicate → (Decontaminate) → Mix → 
                         removed-doc logs with reasons, used by the Inspector
 ```
 
-## 1. Ingest
+## 1. Ingest *(built in M1)*
 
-Read sources into a raw dataset with a common schema.
+Read sources into a dataset with a common schema, stored as Parquet (ZSTD-compressed):
 
-| Field | Type | Notes |
+| Column | Type | Notes |
 |---|---|---|
-| `id` | string | Stable: hash of source path + offset, or an id field from the source |
+| `id` | string | From the chosen ID field, otherwise `<source>:<record number>` (stable across re-imports) |
 | `text` | string | The content |
-| `source` | string | Which source it came from |
-| `meta` | map | Any extra fields kept from the input |
+| `source` | string | File it came from, relative to the picked folder (e.g. `corpus/sub/a.jsonl`) |
+| `meta` | string | JSON object with every other field/column of the record (`{}` when none) |
 
-Supported inputs: `.txt` (one doc per file or per line), `.jsonl` / `.json` (choose the text
-field), `.csv`, `.parquet`, `.md`, `.html`, and source code files. Compressed inputs
-(`.gz`, `.zst`) are read transparently.
+**Inputs** (format detected from the extension, or chosen explicitly):
+
+| Format | Extensions | Text taken from |
+|---|---|---|
+| JSONL | `.jsonl`, `.ndjson` | The text field of each line's object |
+| JSON array | `.json` | The text field of each object in the array (whole file is loaded into memory) |
+| Plain text | `.txt`, `.text`, `.md`, `.markdown` | Whole file, each line, or each blank-line-separated paragraph |
+| CSV / TSV | `.csv`, `.tsv` (header row required) | The text column |
+| Parquet | `.parquet` | The text column (any type castable to string) |
+
+`.gz` and `.zst` suffixes are decompressed on the fly (not for Parquet). Folders are walked
+recursively in name order; hidden files and files of unknown type are skipped and counted.
+Invalid UTF-8 is replaced with U+FFFD; proper encoding repair belongs to Normalize.
+
+**What is skipped**, counted per file in the import report: records without the text field
+(or where it is not a string), records whose text is empty or whitespace, and lines/rows that
+cannot be parsed (the first 10 are kept as examples). A file-level problem such as a missing
+column fails the whole import with a message naming the available fields.
+
+**Stats** computed during import and stored in the manifest: document and character counts,
+text bytes, shortest/longest document, and a length histogram with power-of-two bins
+(0-64, 64-128, ... >=128K characters).
+
+*Planned:* HTML extraction, source-code files, WARC.
 
 ## 2. Normalize
 
@@ -130,6 +151,12 @@ threshold = 0.8
 ```
 
 ## Inspection
+
+*Built in M1:* each dataset's page shows its stats, length histogram, import report, and a
+document browser (25 per page, click to read the full text and metadata). Search is a
+case-insensitive substring match that scans forward from the current position; each request
+stops after 2 seconds and reports how far it got, so searching a large dataset never freezes
+the app.
 
 The Inspector is how you decide thresholds. For any dataset or run it shows:
 

@@ -25,6 +25,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.42", features = ["bundled"] }
 thiserror = "2"
+parquet = "60"
+arrow = { version = "60", default-features = false, features = ["json"] }
+csv = "1"
+flate2 = "1"
+# Same major version as parquet uses, so only one copy of the zstd C library is linked.
+zstd = "0.14"
 toml = "1"
 log = "0.4"
 

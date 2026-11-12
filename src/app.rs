@@ -3,9 +3,8 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api;
-use crate::pages::{
-    DatasetsPage, JobsPage, PlaceholderPage, SettingsPage, WelcomePage,
-};
+use crate::datasets::DatasetsPage;
+use crate::pages::{JobsPage, PlaceholderPage, SettingsPage, WelcomePage};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
@@ -43,6 +42,8 @@ pub struct AppCtx {
     pub recent: RwSignal<Vec<String>>,
     pub jobs: RwSignal<Vec<JobStatus>>,
     pub page: RwSignal<Page>,
+    /// Dataset shown on the Datasets page; `None` shows the list.
+    pub selected_dataset: RwSignal<Option<String>>,
 }
 
 impl AppCtx {
@@ -55,6 +56,7 @@ impl AppCtx {
             recent: RwSignal::new(Vec::new()),
             jobs: RwSignal::new(Vec::new()),
             page: RwSignal::new(Page::Datasets),
+            selected_dataset: RwSignal::new(None),
         }
     }
 
@@ -65,7 +67,7 @@ impl AppCtx {
                 Some(existing) => *existing = status,
                 None => jobs.push(status),
             }
-            jobs.sort_by(|a, b| b.id.cmp(&a.id));
+            jobs.sort_by_key(|j| std::cmp::Reverse(j.id));
         });
     }
 
@@ -155,7 +157,12 @@ fn Shell() -> impl IntoView {
                                     <button
                                         class="nav-item"
                                         class:active=move || ctx.page.get() == p
-                                        on:click=move |_| ctx.page.set(p)
+                                        on:click=move |_| {
+                                            if p == Page::Datasets {
+                                                ctx.selected_dataset.set(None);
+                                            }
+                                            ctx.page.set(p);
+                                        }
                                     >
                                         <span>{p.label()}</span>
                                         {(p == Page::Jobs)

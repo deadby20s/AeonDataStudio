@@ -1,6 +1,8 @@
 mod catalog;
 mod commands;
+mod dataset;
 mod error;
+mod import;
 mod jobs;
 mod state;
 mod workspace;
@@ -24,11 +26,10 @@ pub fn run() {
 
             // Reopen the last workspace. If it has moved or is broken, start without one;
             // it stays in the recent list so the user sees the error when they pick it.
-            if let Some(last) = state.recent_workspaces().first().cloned() {
-                if let Err(e) = state.open_workspace(std::path::Path::new(&last)) {
+            if let Some(last) = state.recent_workspaces().first().cloned()
+                && let Err(e) = state.open_workspace(std::path::Path::new(&last)) {
                     log::warn!("could not reopen workspace {last}: {e}");
                 }
-            }
 
             app.manage(state);
             Ok(())
@@ -40,6 +41,13 @@ pub fn run() {
             commands::close_workspace,
             commands::forget_recent_workspace,
             commands::list_datasets,
+            commands::pick_import_files,
+            commands::pick_import_folder,
+            commands::start_import,
+            commands::get_dataset,
+            commands::browse_documents,
+            commands::get_document,
+            commands::delete_dataset,
             commands::list_jobs,
             commands::cancel_job,
             commands::clear_finished_jobs,

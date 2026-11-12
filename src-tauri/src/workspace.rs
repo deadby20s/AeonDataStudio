@@ -79,6 +79,7 @@ impl Workspace {
         for dir in SUBDIRS {
             std::fs::create_dir_all(root.join(dir))?;
         }
+        crate::dataset::remove_stale_temp_dirs(&root.join("datasets"));
         let catalog = Catalog::open(&root.join(CATALOG_FILE))?;
 
         Ok(Self { root: root.to_path_buf(), settings, catalog: Mutex::new(catalog) })
@@ -86,6 +87,18 @@ impl Workspace {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    pub fn datasets_dir(&self) -> PathBuf {
+        self.root.join("datasets")
+    }
+
+    /// Folder of a dataset. The id is validated so it can't point outside the workspace.
+    pub fn dataset_dir(&self, id: &str) -> AppResult<PathBuf> {
+        if !crate::dataset::is_valid_id(id) {
+            return Err(AppError::InvalidInput(format!("Invalid dataset id: {id:?}")));
+        }
+        Ok(self.datasets_dir().join(id))
     }
 
     pub fn catalog(&self) -> AppResult<std::sync::MutexGuard<'_, Catalog>> {

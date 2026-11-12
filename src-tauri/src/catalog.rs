@@ -31,6 +31,11 @@ const MIGRATIONS: &[&str] = &[
         finished_at_ms    INTEGER
     );
     "#,
+    // 2: totals and a short source description for the dataset list
+    r#"
+    ALTER TABLE datasets ADD COLUMN char_count INTEGER;
+    ALTER TABLE datasets ADD COLUMN source_desc TEXT;
+    "#,
 ];
 
 pub struct Catalog {
@@ -69,7 +74,8 @@ impl Catalog {
 
     pub fn list_datasets(&self) -> AppResult<Vec<DatasetSummary>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, description, created_at_ms, doc_count, byte_size, parent_run_id
+            "SELECT id, name, description, created_at_ms, doc_count, char_count, byte_size, source_desc,
+                    parent_run_id
              FROM datasets ORDER BY created_at_ms DESC",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -79,29 +85,38 @@ impl Catalog {
                 description: r.get(2)?,
                 created_at_ms: r.get(3)?,
                 doc_count: r.get::<_, Option<i64>>(4)?.map(|v| v as u64),
-                byte_size: r.get::<_, Option<i64>>(5)?.map(|v| v as u64),
-                parent_run_id: r.get(6)?,
+                char_count: r.get::<_, Option<i64>>(5)?.map(|v| v as u64),
+                byte_size: r.get::<_, Option<i64>>(6)?.map(|v| v as u64),
+                source_desc: r.get(7)?,
+                parent_run_id: r.get(8)?,
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
-    #[cfg(test)]
     pub fn insert_dataset(&self, d: &DatasetSummary) -> AppResult<()> {
         self.conn.execute(
-            "INSERT INTO datasets (id, name, description, created_at_ms, doc_count, byte_size, parent_run_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO datasets (id, name, description, created_at_ms, doc_count, char_count, byte_size,
+                                   source_desc, parent_run_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             rusqlite::params![
                 d.id,
                 d.name,
                 d.description,
                 d.created_at_ms,
                 d.doc_count.map(|v| v as i64),
+                d.char_count.map(|v| v as i64),
                 d.byte_size.map(|v| v as i64),
+                d.source_desc,
                 d.parent_run_id,
             ],
         )?;
         Ok(())
+    }
+
+    /// Returns whether a row was deleted.
+    pub fn delete_dataset(&self, id: &str) -> AppResult<bool> {
+        Ok(self.conn.execute("DELETE FROM datasets WHERE id = ?1", [id])? > 0)
     }
 
     #[cfg(test)]
@@ -137,7 +152,9 @@ mod tests {
             description: None,
             created_at_ms: 1,
             doc_count: Some(10),
+            char_count: Some(100),
             byte_size: None,
+            source_desc: Some("1 JSONL file".into()),
             parent_run_id: None,
         };
         let newer = DatasetSummary { id: "b".into(), name: "newer".into(), created_at_ms: 2, ..older.clone() };
@@ -145,8 +162,12 @@ mod tests {
         cat.insert_dataset(&newer).unwrap();
 
         let list = cat.list_datasets().unwrap();
-        assert_eq!(list, vec![newer, older]);
+        assert_eq!(list, vec![newer.clone(), older]);
         assert_eq!(cat.dataset_count().unwrap(), 2);
+
+        assert!(cat.delete_dataset("a").unwrap());
+        assert!(!cat.delete_dataset("a").unwrap());
+        assert_eq!(cat.list_datasets().unwrap(), vec![newer]);
     }
 
     #[test]

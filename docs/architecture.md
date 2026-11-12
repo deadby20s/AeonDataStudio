@@ -1,6 +1,6 @@
 # Architecture
 
-## Current state (after M0)
+## Current state (after M1)
 
 The Cargo workspace has three crates:
 
@@ -34,9 +34,26 @@ The Cargo workspace has three crates:
   full `JobStatus` (throttled to 10/s per job), supports cancellation, and turns errors and
   panics into a `Failed` state. Keeps the last 50 finished jobs.
 
+- `dataset/`: dataset storage. `writer.rs` streams documents into Parquet part files
+  (new part every 250k rows or 512 MB of text, 16k-row row groups) and collects stats;
+  `reader.rs` pages, searches and fetches single documents across parts;
+  `mod.rs` has ids, manifests, and `TempDataset`, which writes into `datasets/.importing-<id>/`
+  and renames into place only on success (leftovers are removed when a workspace opens).
+- `import/`: `sources.rs` turns files into records (one reader per format, plus `.gz`/`.zst`
+  decompression and progress counting); `mod.rs` is the import job.
+- Dataset ids are restricted to `[a-z0-9-]` and checked before any path is built from them.
+
 **Commands:** `get_app_info`, `pick_folder`, `open_workspace`, `close_workspace`,
-`forget_recent_workspace`, `list_datasets`, `list_jobs`, `cancel_job`, `clear_finished_jobs`,
-`start_self_test_job` (diagnostic job that only reports progress).
+`forget_recent_workspace`, `list_datasets`, `pick_import_files`, `pick_import_folder`,
+`start_import`, `get_dataset`, `browse_documents`, `get_document`, `delete_dataset`,
+`list_jobs`, `cancel_job`, `clear_finished_jobs`, `start_self_test_job` (diagnostic job that
+only reports progress). Commands that read files run on a blocking thread pool.
+
+**Frontend** additions: `datasets.rs` holds the dataset list, import form, detail page
+(stats, histogram, import report) and document browser.
+
+Measured on a 300k-document, 40 MB gzipped JSONL file (debug build): import 6.5 s, opening the
+dataset 0.1 s, a page of documents 0.05 s, a full-dataset search with no hits 1.8 s.
 
 ## Target design
 
@@ -98,8 +115,8 @@ native targets.
 
 ## Workspace layout on disk
 
-`studio.toml`, `catalog.sqlite` and the four folders are created today; the files inside
-them are planned.
+`studio.toml`, `catalog.sqlite`, the four folders and `datasets/<id>/` (manifest + Parquet
+parts) exist today; `runs/`, `pipelines/` and `exports/` are still empty.
 
 The user picks a workspace folder. Inside it:
 
@@ -111,8 +128,8 @@ workspace/
 │   └── web-clean.toml       # saved recipes
 ├── datasets/
 │   └── <dataset-id>/
-│       ├── manifest.json    # schema, row count, created-by run, hashes
-│       └── part-00000.parquet ...
+│       ├── manifest.json    # parts, stats, import report (hashes planned)
+│       └── part-00000.parquet ...   # columns: id, text, source, meta
 ├── runs/
 │   └── <run-id>/
 │       ├── pipeline.toml    # frozen copy of the recipe used
@@ -130,7 +147,7 @@ Crates marked *(in use)* are already dependencies; the rest guide future choices
 
 | Need | Candidates |
 |---|---|
-| Columnar storage | `arrow`, `parquet` (or `polars` for analysis-heavy work) |
+| Columnar storage | `arrow`, `parquet` *(in use)*; `polars` if analysis gets heavy |
 | Catalog | `rusqlite` (bundled SQLite) *(in use)* |
 | Parallelism | `rayon` |
 | Hashing / dedup | `xxhash-rust`, `blake3`, a MinHash/LSH implementation |
@@ -155,6 +172,9 @@ Record non-obvious decisions here, newest first.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-11-12 | Import never fails on a bad record, only on a bad file | One broken line in a 300k-line file shouldn't cost the whole import; a wrong column name affects every record, so it should fail fast with the available names |
+| 2026-11-12 | Search scans with a 2 s budget per request instead of building an index | Simple and good enough for single-machine datasets; an index can come later if needed |
+| 2026-11-12 | `zstd` dependency pinned to the version `parquet` uses | Two versions would each link the zstd C library and conflict |
 | 2026-11-12 | Release profile has no `panic = "abort"`, and lives in the root `Cargo.toml` | Job threads need unwinding so a panic marks the job failed instead of killing the app. Cargo ignores profiles in member crates, so the old one in `src-tauri/Cargo.toml` never applied |
 | 2026-11-12 | New workspaces only in empty folders | Picking the wrong folder must not litter it with workspace files |
 | 2026-11-12 | One `job://update` event carrying the full `JobStatus` | Simpler than separate progress/done events; the UI just upserts |

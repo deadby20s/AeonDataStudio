@@ -12,10 +12,12 @@ Milestones are ordered; each one should leave the app usable.
 - [x] Initialize git; commit `Cargo.lock`.
 
 ## M1: Import and browse
-- [ ] Import JSONL, TXT, CSV, Parquet (including `.gz` / `.zst`) into Parquet datasets.
-- [ ] Dataset list with row counts, size, and source info.
-- [ ] Document browser with paging and text search.
-- [ ] Basic stats: length histogram, document and character counts.
+- [x] Import JSONL, JSON, TXT/MD, CSV/TSV, Parquet (including `.gz` / `.zst`) into Parquet datasets.
+- [x] Dataset list with row counts, size, and source info; delete datasets.
+- [x] Document browser with paging and text search.
+- [x] Basic stats: length histogram, document and character counts.
+- [ ] Follow-ups: preview the first records and fields before importing (today a wrong
+      field name is only reported after the job starts); highlight search matches.
 
 ## M2: Cleaning pipeline
 - [ ] Step trait, registry, and executor with batching and `rayon` parallelism.

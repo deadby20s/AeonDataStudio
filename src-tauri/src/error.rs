@@ -30,6 +30,18 @@ pub enum AppError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("Parquet error: {0}")]
+    Parquet(#[from] parquet::errors::ParquetError),
+
+    #[error("Arrow error: {0}")]
+    Arrow(#[from] arrow::error::ArrowError),
+
+    #[error("CSV error: {0}")]
+    Csv(#[from] csv::Error),
+
+    #[error("Dataset {0} not found")]
+    DatasetNotFound(String),
+
     #[error("{0}")]
     Tauri(#[from] tauri::Error),
 

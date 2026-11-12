@@ -7,7 +7,7 @@ shards. Everything runs locally.
 Built with [Tauri 2](https://tauri.app) (Rust backend) and [Leptos](https://leptos.dev)
 (WebAssembly frontend).
 
-> Early stage: milestone M0 (app shell, workspaces, job runner) is done; data import starts in M1. See the [roadmap](docs/roadmap.md).
+> Early stage: you can import data (JSONL, JSON, text, CSV/TSV, Parquet, optionally `.gz`/`.zst`), see stats, and browse and search documents. Cleaning pipelines come next. See the [roadmap](docs/roadmap.md).
 
 ## Quick start
 

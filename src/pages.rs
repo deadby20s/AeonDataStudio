@@ -1,4 +1,4 @@
-use aeon_shared::{DatasetSummary, JobId, JobState, JobStatus};
+use aeon_shared::{JobId, JobState, JobStatus};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
@@ -10,6 +10,7 @@ use crate::format;
 async fn open_workspace(ctx: AppCtx, path: String) -> Result<(), String> {
     api::open_workspace(&path).await.map_err(|e| e.to_string())?;
     ctx.page.set(Page::Datasets);
+    ctx.selected_dataset.set(None);
     ctx.refresh().await.map_err(|e| e.to_string())
 }
 
@@ -136,75 +137,6 @@ pub fn WelcomePage() -> impl IntoView {
 }
 
 #[component]
-pub fn DatasetsPage() -> impl IntoView {
-    let datasets = RwSignal::new(None::<Result<Vec<DatasetSummary>, String>>);
-    spawn_local(async move {
-        datasets.set(Some(api::list_datasets().await.map_err(|e| e.to_string())));
-    });
-
-    view! {
-        <header class="page-header">
-            <h1>"Datasets"</h1>
-            <button class="primary" disabled title="Import arrives in milestone M1">
-                "Import…"
-            </button>
-        </header>
-        {move || match datasets.get() {
-            None => view! { <p class="muted">"Loading…"</p> }.into_any(),
-            Some(Err(e)) => view! { <p class="error">{e}</p> }.into_any(),
-            Some(Ok(list)) if list.is_empty() => {
-                view! {
-                    <div class="empty">
-                        <h2>"No datasets yet"</h2>
-                        <p class="muted">
-                            "Importing JSONL, text, CSV and Parquet files arrives in milestone M1."
-                        </p>
-                    </div>
-                }
-                    .into_any()
-            }
-            Some(Ok(list)) => {
-                view! {
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>"Name"</th>
-                                <th class="num">"Documents"</th>
-                                <th class="num">"Size"</th>
-                                <th>"Created"</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {list
-                                .into_iter()
-                                .map(|d| {
-                                    view! {
-                                        <tr>
-                                            <td>
-                                                <div>{d.name}</div>
-                                                <div class="muted small">{d.description}</div>
-                                            </td>
-                                            <td class="num">
-                                                {d.doc_count.map(format::count).unwrap_or_else(|| "—".into())}
-                                            </td>
-                                            <td class="num">
-                                                {d.byte_size.map(format::bytes).unwrap_or_else(|| "—".into())}
-                                            </td>
-                                            <td>{format::datetime(d.created_at_ms)}</td>
-                                        </tr>
-                                    }
-                                })
-                                .collect_view()}
-                        </tbody>
-                    </table>
-                }
-                    .into_any()
-            }
-        }}
-    }
-}
-
-#[component]
 pub fn PlaceholderPage(title: &'static str, milestone: &'static str, body: &'static str) -> impl IntoView {
     view! {
         <header class="page-header">
@@ -273,7 +205,7 @@ pub fn JobsPage() -> impl IntoView {
 }
 
 #[component]
-fn JobRow(id: JobId, error: RwSignal<Option<String>>) -> impl IntoView {
+pub fn JobRow(id: JobId, error: RwSignal<Option<String>>) -> impl IntoView {
     let ctx = use_app();
     let job = Memo::new(move |_| ctx.jobs.with(|jobs| jobs.iter().find(|j| j.id == id).cloned()));
     let get = move |f: fn(&JobStatus) -> String| job.with(|j| j.as_ref().map(f).unwrap_or_default());

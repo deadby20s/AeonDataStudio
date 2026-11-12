@@ -1,7 +1,10 @@
 //! Typed wrappers around Tauri commands and events. Components call these instead of
 //! `invoke` with raw strings, so command names and argument shapes live in one place.
 
-use aeon_shared::{AppInfo, DatasetSummary, JOB_UPDATE_EVENT, JobId, JobStatus, WorkspaceInfo};
+use aeon_shared::{
+    AppInfo, DatasetManifest, DatasetSummary, Document, DocumentPage, ImportRequest, JOB_UPDATE_EVENT, JobId,
+    JobStatus, WorkspaceInfo,
+};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
@@ -90,6 +93,66 @@ pub async fn forget_recent_workspace(path: &str) -> ApiResult<Vec<String>> {
 
 pub async fn list_datasets() -> ApiResult<Vec<DatasetSummary>> {
     call("list_datasets", &NoArgs {}).await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DatasetArg<'a> {
+    dataset_id: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowseArgs<'a> {
+    dataset_id: &'a str,
+    start_row: u64,
+    limit: u64,
+    query: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DocumentArgs<'a> {
+    dataset_id: &'a str,
+    row: u64,
+}
+
+#[derive(Serialize)]
+struct ImportArgs<'a> {
+    request: &'a ImportRequest,
+}
+
+pub async fn pick_import_files() -> ApiResult<Vec<String>> {
+    call("pick_import_files", &NoArgs {}).await
+}
+
+pub async fn pick_import_folder() -> ApiResult<Option<String>> {
+    call("pick_import_folder", &NoArgs {}).await
+}
+
+pub async fn start_import(request: &ImportRequest) -> ApiResult<JobId> {
+    call("start_import", &ImportArgs { request }).await
+}
+
+pub async fn get_dataset(dataset_id: &str) -> ApiResult<DatasetManifest> {
+    call("get_dataset", &DatasetArg { dataset_id }).await
+}
+
+pub async fn browse_documents(
+    dataset_id: &str,
+    start_row: u64,
+    limit: u64,
+    query: Option<&str>,
+) -> ApiResult<DocumentPage> {
+    call("browse_documents", &BrowseArgs { dataset_id, start_row, limit, query }).await
+}
+
+pub async fn get_document(dataset_id: &str, row: u64) -> ApiResult<Document> {
+    call("get_document", &DocumentArgs { dataset_id, row }).await
+}
+
+pub async fn delete_dataset(dataset_id: &str) -> ApiResult<()> {
+    call("delete_dataset", &DatasetArg { dataset_id }).await
 }
 
 pub async fn list_jobs() -> ApiResult<Vec<JobStatus>> {

@@ -123,7 +123,7 @@ impl JobManager {
     /// All known jobs, newest first.
     pub fn list(&self) -> AppResult<Vec<JobStatus>> {
         let mut list: Vec<_> = self.lock()?.values().map(|e| e.status.clone()).collect();
-        list.sort_by(|a, b| b.id.cmp(&a.id));
+        list.sort_by_key(|j| std::cmp::Reverse(j.id));
         Ok(list)
     }
 

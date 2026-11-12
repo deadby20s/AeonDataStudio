@@ -1,5 +1,6 @@
 mod api;
 mod app;
+mod datasets;
 mod format;
 mod pages;
 
