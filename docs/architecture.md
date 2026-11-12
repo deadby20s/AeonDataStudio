@@ -1,6 +1,6 @@
 # Architecture
 
-## Current state (after M2)
+## Current state (after M3)
 
 The Cargo workspace has three crates:
 
@@ -48,13 +48,19 @@ The Cargo workspace has three crates:
 - `pipeline/`: `steps.rs` has the `Step` trait (`apply(&mut String) -> Unchanged | Changed |
   Drop { rule, detail }`) and every normalizer and filter; `mod.rs` compiles a recipe into
   steps, processes one document, and aggregates per-step statistics; `run.rs` is the run job;
-  `preview.rs` samples and previews; `removed.rs` writes and reads removed documents;
-  `storage.rs` saves recipes as TOML.
+  `preview.rs` samples and previews; `removed.rs` writes, reads and samples removed documents;
+  `kept.rs` the kept-document index for before/after; `dedup.rs` exact hashing, MinHash LSH and
+  on-disk band files; `storage.rs` saves recipes as TOML. A compiled step is either a
+  per-document step or a dedup step; `Pipeline::process(text, row, decisions, stop_at)` drops
+  rows listed in a dedup step's resolved `Decisions`, and `stop_at` halts at a dedup step for
+  fingerprint passes.
 - Shared crate: `pipeline.rs` defines recipes (`PipelineSpec`, `StepConfig`), run reports,
   and `STEP_KINDS`, a description of every step's settings that the editor uses to build
   its forms. Adding a step type means adding a variant, its `STEP_KINDS` entry, and its
   `Step` impl; no UI code.
 - Jobs can finish with a link (`JobLink::Dataset` / `JobLink::Run`) shown as an "Open" button.
+- Frontend: `inspector.rs` (removed-by-reason cards, duplicate pairs, before/after) and
+  `diff.rs` (Myers word-level diff, whitespace split per character).
 
 **Commands:** `get_app_info`, `pick_folder`, `open_workspace`, `close_workspace`,
 `forget_recent_workspace`, `list_datasets`, `pick_import_files`, `pick_import_folder`,
@@ -149,8 +155,9 @@ workspace/
 ├── runs/
 │   └── <run-id>/
 │       ├── pipeline.toml    # frozen copy of the recipe used
-│       ├── report.json      # per-step counts, rules, timing, removed-doc parts
-│       └── removed/         # dropped docs with step + rule + detail, for inspection
+│       ├── report.json      # per-step counts, rules, timing, removed/kept parts
+│       ├── removed/         # dropped docs with step + rule + detail (+ duplicated row)
+│       └── kept/            # per output row: input row + which steps changed it
 └── exports/
 ```
 
@@ -188,6 +195,9 @@ Record non-obvious decisions here, newest first.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-11-12 | Dedup keeps the lowest input row and runs as extra passes with on-disk band files sorted one band at a time | Deterministic "keep first" semantics and bounded memory (16 bytes per document per band in RAM for one band), at the cost of one extra read of the input per dedup step |
+| 2026-11-12 | Near-dup uses LSH band collisions without verifying the Jaccard estimate | Storing full signatures would cost ~1 KB per document; band collisions alone give a well-understood detection curve (shown in the UI) |
+| 2026-11-12 | Runs record a kept index (input row + changed-steps bitmask per output row) | Enables before/after in the Inspector for 16 bytes per document, without storing text twice |
 | 2026-11-12 | In recipes, a missing threshold means "rule off"; recommended values are only applied when a step is added | TOML has no null, so "off" must be representable by absence; otherwise a rule switched off would come back on reload |
 | 2026-11-12 | Steps work on one document at a time; batches are processed in parallel with rayon | All M2 steps only need the document itself, which makes parallelism trivial; corpus-wide steps (dedup, M3) will be separate passes |
 | 2026-11-12 | A run stores removed documents with full text | Needed to inspect why documents were dropped; compressed Parquet keeps the cost reasonable |

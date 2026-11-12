@@ -28,9 +28,11 @@ Milestones are ordered; each one should leave the app usable.
 - [ ] Follow-ups: time a full run in a release build; cancel button for a running preview.
 
 ## M3: Deduplication and inspection
-- [ ] Exact dedup.
-- [ ] MinHash + LSH near-duplicate dedup with an on-disk index.
-- [ ] Inspector: per-step funnel, removed samples by reason, before/after view.
+- [x] Exact dedup.
+- [x] MinHash + LSH near-duplicate dedup with an on-disk index.
+- [x] Inspector: per-step funnel, removed samples by reason, duplicate pairs, before/after view.
+- [ ] Follow-ups: sub-document (paragraph) dedup; optional Jaccard verification of LSH
+      candidates; inspecting a dataset without a run.
 
 ## M4: Export
 - [ ] JSONL and Parquet export with manifests and checksums.

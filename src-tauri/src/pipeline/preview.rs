@@ -5,7 +5,8 @@ use std::collections::HashMap;
 use aeon_shared::{ChangeExample, DropExample, PipelinePreview, PipelineSpec};
 use rayon::prelude::*;
 
-use super::{Pipeline, StatsAccumulator};
+use super::dedup::resolve_in_memory;
+use super::{Decisions, Pipeline, StatsAccumulator};
 use crate::dataset::DatasetReader;
 use crate::error::AppResult;
 
@@ -24,10 +25,24 @@ pub fn preview(spec: &PipelineSpec, reader: &DatasetReader, sample_size: u64) ->
 
     let docs = sample(reader, sample_size)?;
 
+    // Dedup steps only see the sample here, so they find duplicates within it.
+    let mut decisions = Decisions::default();
+    for pos in pipeline.dedup_positions() {
+        let fingerprints: Vec<(u64, Vec<u64>)> = docs
+            .par_iter()
+            .filter_map(|(row, _, text)| {
+                let o = pipeline.process(text.clone(), *row, &decisions, Some(pos));
+                if o.reached_stop { pipeline.fingerprint(pos, &o.text).map(|f| (*row, f)) } else { None }
+            })
+            .collect();
+        let dups = resolve_in_memory(pipeline.bands(pos), &fingerprints);
+        decisions.set(pos, dups);
+    }
+
     let results: Vec<_> = docs
         .into_par_iter()
-        .map(|(id, text)| {
-            let outcome = pipeline.process(text.clone());
+        .map(|(row, id, text)| {
+            let outcome = pipeline.process(text.clone(), row, &decisions, None);
             (id, text, outcome)
         })
         .collect();
@@ -62,11 +77,11 @@ pub fn preview(spec: &PipelineSpec, reader: &DatasetReader, sample_size: u64) ->
             }
             *n += 1;
             let mut text = original.clone();
-            for s in &pipeline.steps[..pos] {
-                let _ = s.step.apply(&mut text);
+            for earlier in 0..pos {
+                pipeline.apply_doc_step(earlier, &mut text);
             }
             let before = text.clone();
-            let _ = pipeline.steps[pos].step.apply(&mut text);
+            pipeline.apply_doc_step(pos, &mut text);
             let (b, a) = diff_window(&before, &text);
             change_examples.push(ChangeExample { step_index: pipeline.steps[pos].index, id: id.clone(), before: b, after: a });
         }
@@ -81,13 +96,13 @@ pub fn preview(spec: &PipelineSpec, reader: &DatasetReader, sample_size: u64) ->
     })
 }
 
-/// `size` distinct documents as `(id, text)`, spread across the dataset.
+/// `size` distinct documents as `(row, id, text)`, spread across the dataset.
 ///
 /// When the sample is at least half the dataset, the dataset is read whole (at most
 /// 2 × [`MAX_SAMPLE`] rows) and every k-th row is kept. Otherwise [`SAMPLE_CHUNKS`] evenly
 /// spaced runs of rows are read, each contiguously (cheap with Parquet row groups); the runs
 /// can't overlap because the gap between run starts is at least twice the run length.
-fn sample(reader: &DatasetReader, size: u64) -> AppResult<Vec<(String, String)>> {
+fn sample(reader: &DatasetReader, size: u64) -> AppResult<Vec<(u64, String, String)>> {
     let total = reader.row_count();
     let size = size.min(total);
     let mut docs = Vec::with_capacity(size as usize);
@@ -99,7 +114,7 @@ fn sample(reader: &DatasetReader, size: u64) -> AppResult<Vec<(String, String)>>
         let mut next_i = 0u64;
         reader.scan(0, None, |row, r| {
             if row == next_i * total / size {
-                docs.push((r.id.to_string(), r.text.to_string()));
+                docs.push((row, r.id.to_string(), r.text.to_string()));
                 next_i += 1;
             }
             next_i < size
@@ -110,8 +125,8 @@ fn sample(reader: &DatasetReader, size: u64) -> AppResult<Vec<(String, String)>>
             let start = total * c / chunks;
             // Spread the remainder over the first chunks so the sizes add up exactly.
             let n = size / chunks + u64::from(c < size % chunks);
-            reader.scan(start, Some(n), |_, r| {
-                docs.push((r.id.to_string(), r.text.to_string()));
+            reader.scan(start, Some(n), |row, r| {
+                docs.push((row, r.id.to_string(), r.text.to_string()));
                 true
             })?;
         }
@@ -174,8 +189,11 @@ mod tests {
         (root, r)
     }
 
-    fn ids(docs: &[(String, String)]) -> Vec<u64> {
-        docs.iter().map(|(id, _)| id.parse().unwrap()).collect()
+    fn ids(docs: &[(u64, String, String)]) -> Vec<u64> {
+        docs.iter().map(|(row, id, _)| {
+            assert_eq!(id.parse::<u64>().unwrap(), *row);
+            *row
+        }).collect()
     }
 
     #[test]

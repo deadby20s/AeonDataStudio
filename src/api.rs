@@ -3,7 +3,7 @@
 
 use aeon_shared::{
     AppInfo, DatasetManifest, DatasetSummary, Document, DocumentPage, ImportRequest, JOB_UPDATE_EVENT, JobId,
-    JobStatus, PipelinePreview, PipelineSpec, PipelineSummary, RemovedDoc, RemovedPage, RunReport, RunSummary,
+    ChangedPage, JobStatus, PipelinePreview, PipelineSpec, PipelineSummary, RemovedDoc, RemovedPage, RunReport, RunSummary,
     WorkspaceInfo,
 };
 use serde::de::DeserializeOwned;
@@ -254,6 +254,33 @@ pub async fn get_removed(run_id: &str, index: u64) -> ApiResult<RemovedDoc> {
 
 pub async fn delete_run(run_id: &str) -> ApiResult<()> {
     call("delete_run", &RunIdArg { run_id }).await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SampleRemovedArgs<'a> {
+    run_id: &'a str,
+    step_index: u64,
+    rule: &'a str,
+    count: u64,
+    seed: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowseChangedArgs<'a> {
+    run_id: &'a str,
+    step_index: Option<u64>,
+    start: u64,
+    limit: u64,
+}
+
+pub async fn sample_removed(run_id: &str, step_index: u64, rule: &str, count: u64, seed: u64) -> ApiResult<Vec<RemovedDoc>> {
+    call("sample_removed", &SampleRemovedArgs { run_id, step_index, rule, count, seed }).await
+}
+
+pub async fn browse_changed(run_id: &str, step_index: Option<u64>, start: u64, limit: u64) -> ApiResult<ChangedPage> {
+    call("browse_changed", &BrowseChangedArgs { run_id, step_index, start, limit }).await
 }
 
 pub async fn list_jobs() -> ApiResult<Vec<JobStatus>> {

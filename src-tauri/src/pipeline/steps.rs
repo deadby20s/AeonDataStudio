@@ -61,6 +61,9 @@ pub fn build(config: &StepConfig) -> AppResult<Box<dyn Step>> {
             Box::new(c.clone())
         }
         StepConfig::BlocklistFilter(c) => Box::new(Blocklist::new(c)),
+        StepConfig::ExactDedup(_) | StepConfig::NearDedup(_) => {
+            return Err(AppError::Internal("dedup steps are compiled by the pipeline, not as document steps".into()));
+        }
     })
 }
 

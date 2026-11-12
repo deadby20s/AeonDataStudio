@@ -213,6 +213,18 @@ fn RunDetail(id: String) -> impl IntoView {
                         <span class="spacer"></span>
                         <button
                             class="small-button"
+                            on:click={
+                                let run_id = run_id.clone();
+                                move |_| {
+                                    ctx.inspect_run.set(Some(run_id.clone()));
+                                    ctx.page.set(Page::Inspector);
+                                }
+                            }
+                        >
+                            "Inspect"
+                        </button>
+                        <button
+                            class="small-button"
                             title="Open this run's recipe in the pipeline editor as a new, unsaved pipeline"
                             on:click=move |_| {
                                 let mut s = spec.clone();

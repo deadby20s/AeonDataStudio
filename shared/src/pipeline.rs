@@ -55,6 +55,8 @@ pub enum StepConfig {
     WordQualityFilter(WordQualityFilter),
     RepetitionFilter(RepetitionFilter),
     BlocklistFilter(BlocklistFilter),
+    ExactDedup(ExactDedup),
+    NearDedup(NearDedup),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -257,6 +259,44 @@ impl Default for BlocklistFilter {
     }
 }
 
+/// Removes documents whose text is identical to an earlier document's.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExactDedup {
+    /// Compare lowercased text with whitespace collapsed, so trivial variants match too.
+    pub normalize: bool,
+}
+
+impl Default for ExactDedup {
+    fn default() -> Self {
+        Self { normalize: true }
+    }
+}
+
+/// MinHash + LSH: removes documents that share most of their word n-grams with an earlier one.
+/// With `bands` × `rows_per_band` hashes, a pair with Jaccard similarity `s` is caught with
+/// probability `1 - (1 - s^rows)^bands`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NearDedup {
+    pub ngram_size: u64,
+    pub bands: u64,
+    pub rows_per_band: u64,
+}
+
+impl Default for NearDedup {
+    fn default() -> Self {
+        Self { ngram_size: 5, bands: 14, rows_per_band: 8 }
+    }
+}
+
+impl NearDedup {
+    /// Probability that a pair with Jaccard similarity `s` is detected.
+    pub fn detection_probability(&self, s: f64) -> f64 {
+        1.0 - (1.0 - s.powi(self.rows_per_band as i32)).powi(self.bands as i32)
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Step descriptions for the UI
 // ---------------------------------------------------------------------------------------------
@@ -267,6 +307,8 @@ pub enum StepCategory {
     Normalize,
     /// Keeps or drops documents, never changes text.
     Filter,
+    /// Drops documents that repeat earlier ones. Needs a pass over the whole dataset.
+    Dedup,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -427,6 +469,26 @@ pub static STEP_KINDS: &[StepKindInfo] = &[
         ],
         default: || StepConfig::BlocklistFilter(BlocklistFilter::default()),
     },
+    StepKindInfo {
+        kind: "exact_dedup",
+        label: "Exact deduplication",
+        category: StepCategory::Dedup,
+        description: "Keep the first copy of each text and remove later identical copies. Adds a pass over the dataset when running.",
+        fields: &[field("normalize", "Ignore case and whitespace", Bool, "Lowercases and collapses whitespace before comparing.")],
+        default: || StepConfig::ExactDedup(ExactDedup::default()),
+    },
+    StepKindInfo {
+        kind: "near_dedup",
+        label: "Near-duplicate removal",
+        category: StepCategory::Dedup,
+        description: "MinHash LSH over word n-grams: keep the first of each group of near-identical documents. With 14 bands × 8 rows, pairs with 80% n-gram overlap are caught about 92% of the time, 90% overlap almost always, 70% overlap about half the time. Adds a pass over the dataset when running.",
+        fields: &[
+            field("ngram_size", "Words per n-gram", Count, "5 is common for web text."),
+            field("bands", "Bands", Count, "More bands catch less similar pairs (lower threshold)."),
+            field("rows_per_band", "Rows per band", Count, "More rows require more similarity (higher threshold)."),
+        ],
+        default: || StepConfig::NearDedup(NearDedup::default()),
+    },
 ];
 
 impl StepConfig {
@@ -441,6 +503,8 @@ impl StepConfig {
             StepConfig::WordQualityFilter(_) => "word_quality_filter",
             StepConfig::RepetitionFilter(_) => "repetition_filter",
             StepConfig::BlocklistFilter(_) => "blocklist_filter",
+            StepConfig::ExactDedup(_) => "exact_dedup",
+            StepConfig::NearDedup(_) => "near_dedup",
         }
     }
 
@@ -458,7 +522,7 @@ impl PipelineSpec {
     pub fn template(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            description: Some("Normalization plus Gopher-style quality filters for web text.".into()),
+            description: Some("Normalization, Gopher-style quality filters and deduplication for web text.".into()),
             steps: STEP_KINDS.iter().map(|k| PipelineStep { enabled: true, config: (k.default)() }).collect(),
         }
     }
@@ -562,6 +626,10 @@ pub struct RunReport {
     pub steps: Vec<StepStats>,
     /// Parquet files with the removed documents, in `runs/<id>/removed/`.
     pub removed_parts: Vec<PartInfo>,
+    /// Parquet files mapping each kept document to its input row and the steps that changed
+    /// it, in `runs/<id>/kept/`. Empty for runs made before this was recorded.
+    #[serde(default)]
+    pub kept_parts: Vec<PartInfo>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -575,6 +643,9 @@ pub struct RemovedDocPreview {
     pub step_index: u64,
     pub rule: String,
     pub detail: String,
+    /// For duplicates: the input row of the document this one duplicates.
+    #[serde(default)]
+    pub related_row: Option<u64>,
     pub chars: u64,
     pub preview: String,
     pub truncated: bool,
@@ -597,8 +668,29 @@ pub struct RemovedDoc {
     pub step_index: u64,
     pub rule: String,
     pub detail: String,
+    /// For duplicates: the input row of the document this one duplicates.
+    #[serde(default)]
+    pub related_row: Option<u64>,
     /// Text as it was when the document was dropped (after earlier normalization steps).
     pub text: String,
+}
+
+/// A kept document that normalization changed, for the Inspector's before/after view.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChangedRef {
+    pub output_row: u64,
+    pub input_row: u64,
+    /// Recipe indices of the steps that changed it.
+    pub step_indices: Vec<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChangedPage {
+    pub items: Vec<ChangedRef>,
+    pub next_start: Option<u64>,
+    pub scanned_to: u64,
+    /// Total kept documents in the run.
+    pub total_kept: u64,
 }
 
 #[cfg(test)]
@@ -612,7 +704,7 @@ mod tests {
             assert_eq!(cfg.kind(), info.kind);
             assert!(std::ptr::eq(cfg.info(), info));
         }
-        assert_eq!(STEP_KINDS.len(), 9);
+        assert_eq!(STEP_KINDS.len(), 11);
     }
 
     #[test]
@@ -622,6 +714,14 @@ mod tests {
         assert!(json.contains(r#""kind":"length_filter""#));
         assert!(json.contains(r#""enabled":true"#));
         assert_eq!(serde_json::from_str::<PipelineSpec>(&json).unwrap(), spec);
+    }
+
+    #[test]
+    fn near_dedup_detection_probability_matches_the_description() {
+        let d = NearDedup::default();
+        assert!((d.detection_probability(0.8) - 0.92).abs() < 0.01);
+        assert!(d.detection_probability(0.9) > 0.99);
+        assert!((d.detection_probability(0.7) - 0.56).abs() < 0.02);
     }
 
     #[test]

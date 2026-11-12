@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use aeon_shared::{
-    AppInfo, DatasetManifest, DatasetSummary, Document, DocumentPage, ImportRequest, JobId, JobKind, JobStatus,
+    AppInfo, ChangedPage, DatasetManifest, DatasetSummary, Document, DocumentPage, ImportRequest, JobId, JobKind,
+    JobStatus,
     PipelinePreview, PipelineSpec, PipelineSummary, RemovedDoc, RemovedPage, RunReport, RunSummary, WorkspaceInfo,
 };
 use tauri::{AppHandle, State};
@@ -296,6 +297,45 @@ pub async fn delete_run(run_id: String, state: State<'_, AppState>) -> AppResult
             std::fs::remove_dir_all(&dir)?;
         }
         Ok(())
+    })
+    .await
+}
+
+// ---------------------------------------------------------------------------------------------
+// Inspector
+// ---------------------------------------------------------------------------------------------
+
+/// Random documents removed by one rule of one step. The same `seed` returns the same sample.
+#[tauri::command]
+pub async fn sample_removed(
+    run_id: String,
+    step_index: u64,
+    rule: String,
+    count: u64,
+    seed: u64,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<RemovedDoc>> {
+    let ws = state.workspace()?;
+    blocking(move || {
+        let report = pipeline::read_report(&ws, &run_id)?;
+        pipeline::sample_removed(&ws.run_dir(&run_id)?, &report, step_index, &rule, count, seed)
+    })
+    .await
+}
+
+/// Kept documents that normalization changed, for comparing input and output.
+#[tauri::command]
+pub async fn browse_changed(
+    run_id: String,
+    step_index: Option<u64>,
+    start: u64,
+    limit: u64,
+    state: State<'_, AppState>,
+) -> AppResult<ChangedPage> {
+    let ws = state.workspace()?;
+    blocking(move || {
+        let report = pipeline::read_report(&ws, &run_id)?;
+        pipeline::browse_changed(&ws.run_dir(&run_id)?, &report, step_index, start, limit)
     })
     .await
 }

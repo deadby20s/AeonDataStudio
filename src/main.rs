@@ -1,7 +1,9 @@
 mod api;
 mod app;
 mod datasets;
+mod diff;
 mod format;
+mod inspector;
 mod pages;
 mod pipelines;
 mod runs;

@@ -60,6 +60,8 @@ pub fn run() {
             commands::browse_removed,
             commands::get_removed,
             commands::delete_run,
+            commands::sample_removed,
+            commands::browse_changed,
             commands::list_jobs,
             commands::cancel_job,
             commands::clear_finished_jobs,

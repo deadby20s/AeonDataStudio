@@ -4,8 +4,9 @@ use leptos::task::spawn_local;
 
 use crate::api;
 use crate::datasets::DatasetsPage;
-use crate::pages::{JobsPage, PlaceholderPage, SettingsPage, WelcomePage};
+use crate::pages::{JobsPage, SettingsPage, WelcomePage};
 use crate::pipelines::{Draft, PipelinesPage};
+use crate::inspector::InspectorPage;
 use crate::runs::RunsPage;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +51,8 @@ pub struct AppCtx {
     pub selected_run: RwSignal<Option<String>>,
     /// Pipeline being edited; `None` shows the list of saved pipelines.
     pub draft: RwSignal<Option<Draft>>,
+    /// Run shown in the Inspector; `None` picks the newest.
+    pub inspect_run: RwSignal<Option<String>>,
 }
 
 impl AppCtx {
@@ -65,6 +68,7 @@ impl AppCtx {
             selected_dataset: RwSignal::new(None),
             selected_run: RwSignal::new(None),
             draft: RwSignal::new(None),
+            inspect_run: RwSignal::new(None),
         }
     }
 
@@ -197,16 +201,7 @@ fn Shell() -> impl IntoView {
                     Page::Datasets => view! { <DatasetsPage/> }.into_any(),
                     Page::Pipelines => view! { <PipelinesPage/> }.into_any(),
                     Page::Runs => view! { <RunsPage/> }.into_any(),
-                    Page::Inspector => {
-                        view! {
-                            <PlaceholderPage
-                                title="Inspector"
-                                milestone="M3"
-                                body="Browse removed documents by reason, compare before and after, and tune thresholds."
-                            />
-                        }
-                            .into_any()
-                    }
+                    Page::Inspector => view! { <InspectorPage/> }.into_any(),
                     Page::Jobs => view! { <JobsPage/> }.into_any(),
                     Page::Settings => view! { <SettingsPage/> }.into_any(),
                 }}

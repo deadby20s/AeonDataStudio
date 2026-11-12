@@ -48,7 +48,7 @@ impl DatasetReader {
         mut visit: impl FnMut(u64, Row<'_>) -> bool,
     ) -> AppResult<()> {
         let mut failure = None;
-        scan_parts(&self.dir, &self.manifest.parts, start_row, limit, |row, batch, i| {
+        scan_parts(&self.dir, &self.manifest.parts, start_row, limit, None, |row, batch, i| {
             let cols = (column(batch, "id"), column(batch, "text"), column(batch, "source"), column(batch, "meta"));
             match cols {
                 (Ok(ids), Ok(texts), Ok(sources), Ok(metas)) => visit(

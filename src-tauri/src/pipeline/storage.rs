@@ -126,7 +126,7 @@ mod tests {
         assert_eq!(save_pipeline(dir.path(), &spec, Some(&file)).unwrap(), file);
         let list = list_pipelines(dir.path()).unwrap();
         assert_eq!(list.len(), 1);
-        assert_eq!((list[0].name.as_str(), list[0].step_count), ("Renamed", 9));
+        assert_eq!((list[0].name.as_str(), list[0].step_count), ("Renamed", aeon_shared::STEP_KINDS.len() as u64));
 
         delete_pipeline(dir.path(), &file).unwrap();
         assert!(list_pipelines(dir.path()).unwrap().is_empty());

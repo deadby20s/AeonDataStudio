@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use aeon_shared::PartInfo;
 use arrow::datatypes::SchemaRef;
 use arrow::record_batch::RecordBatch;
-use parquet::arrow::ArrowWriter;
+use parquet::arrow::{ArrowWriter, ProjectionMask};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
@@ -101,12 +101,14 @@ impl PartedWriter {
 }
 
 /// Calls `visit(row, batch, index_in_batch)` for each row from `start_row` on, across parts,
-/// until it returns `false`. `limit` lets the reader skip decoding rows that won't be visited.
+/// until it returns `false`. `limit` lets the reader skip decoding rows that won't be visited;
+/// `columns` reads only those columns (names missing from a file are ignored).
 pub fn scan_parts(
     dir: &Path,
     parts: &[PartInfo],
     start_row: u64,
     limit: Option<u64>,
+    columns: Option<&[&str]>,
     mut visit: impl FnMut(u64, &RecordBatch, usize) -> bool,
 ) -> AppResult<()> {
     let mut part_start = 0u64;
@@ -126,6 +128,11 @@ pub fn scan_parts(
             .with_offset(offset as usize);
         if let Some(n) = remaining {
             builder = builder.with_limit(n as usize);
+        }
+        if let Some(names) = columns {
+            let indices: Vec<usize> = names.iter().filter_map(|n| builder.schema().index_of(n).ok()).collect();
+            let mask = ProjectionMask::roots(builder.parquet_schema(), indices);
+            builder = builder.with_projection(mask);
         }
         let mut row = part_start + offset;
         for batch in builder.build()? {

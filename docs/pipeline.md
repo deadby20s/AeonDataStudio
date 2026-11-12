@@ -85,18 +85,36 @@ step at about 127 MB/s, every other step runs at 450 MB/s or more. Benchmark:
 classifier), and tagging documents with scores instead of dropping them so thresholds can be
 chosen from the score distribution.
 
-## 4. Deduplicate
+## 4. Deduplicate *(built in M3)*
 
-Duplicates waste compute and increase memorization.
+Duplicates waste compute and increase memorization. Dedup steps go in a pipeline like any
+other step; the **first occurrence (lowest input row) is kept** and later copies are removed
+with rule `exact_duplicate` or `near_duplicate`, recording which row they duplicate.
 
-- **Exact:** hash of normalized text; keep the first occurrence.
-- **Near-duplicate:** MinHash signatures over word n-grams with LSH banding; documents above a
-  Jaccard similarity threshold (e.g. 0.8) are grouped and one per group is kept.
-- **Sub-document (optional):** remove repeated paragraphs or long repeated substrings across the
-  corpus.
+| Step (`kind`) | How it works |
+|---|---|
+| `exact_dedup` | xxh3 hash of the text (with `normalize`, lowercased and whitespace-collapsed first). |
+| `near_dedup` | MinHash over word n-grams (`ngram_size` 5; words lowercased, punctuation removed), split into `bands` × `rows_per_band` (14 × 8). Two documents are duplicates if all hashes of any band match. A pair with n-gram Jaccard similarity *s* is caught with probability 1 − (1 − s⁸)¹⁴: about 56% at 0.7, 92% at 0.8, over 99% at 0.9. |
 
-Deduplication needs a view of the whole dataset, so it runs as its own pass and keeps its
-index on disk to fit large datasets.
+Dedup only considers documents that reach the step, so put it after the filters (it then
+also compares cleaned text). Duplicates are transitive in effect: if B copies A and C copies
+B, both B and C are removed.
+
+**How a run does it.** Each dedup step needs the whole dataset, so a run makes one extra pass
+per dedup step. The pass processes documents up to that step, writes one `(band hash, row)`
+pair per band to `runs/<id>/dedup-<k>/band-NN.bin` (16 bytes per document per band), then sorts
+each band file in turn to find the rows sharing a hash with an earlier row. Memory use is one
+band at a time; the band files are deleted afterwards. A run with exact + near dedup makes 3
+passes in total, shown in its progress.
+
+Measured on 30,000 documents with planted copies: 995 of 1,000 near copies (1–2 words changed or
+a footer added) and every exact copy were found. Fingerprinting speed in a release build:
+about 2.1 GB/s for exact, 150 MB/s for MinHash.
+
+**In previews**, dedup steps only compare documents within the sample, so a full run usually
+finds more.
+
+*Planned:* sub-document dedup (repeated paragraphs or long substrings across the corpus).
 
 ## 5. Decontaminate (optional)
 
@@ -164,6 +182,8 @@ only filled in when a step is added in the editor.
   records per-step statistics and every removed document with its step, rule, detail and
   text (as it was when removed) in `runs/<id>/removed/*.parquet`.
 - The Runs page shows the per-step funnel; clicking a rule lists the documents it removed.
+- *(M3)* The run also records, for every kept document, its input row and which steps changed
+  it (`runs/<id>/kept/`), so the Inspector can show before/after.
 
 ## Inspection
 
@@ -173,10 +193,17 @@ case-insensitive substring match that scans forward from the current position; e
 stops after 2 seconds and reports how far it got, so searching a large dataset never freezes
 the app.
 
-The Inspector is how you decide thresholds. For any dataset or run it shows:
+*Built in M3:* the **Inspector** page is how you decide thresholds. For a completed run it shows:
 
-- Document browser with search and paging.
-- Per-step counts: in, kept, dropped, and the share of tokens removed.
-- Removed documents grouped by step and reason, with random samples from each.
-- Distributions (length, language, quality scores) as histograms.
-- Before/after view of a single document through normalization steps.
+- The per-step funnel.
+- **Removed by reason:** a card per (step, rule) with its count, its share of the step's input and
+  of all removals, and 3 random examples (“Other examples” draws again; samples are
+  reproducible). Only the small columns are scanned to find candidates, so this stays fast on
+  large removal logs.
+- **Duplicates:** pairs of removed copy and kept original, with a word-level diff highlighting
+  what differs, to judge whether the near-duplicate threshold is right.
+- **Before / after:** kept documents changed by normalization (optionally by one step), with a
+  diff of input versus output that marks individual characters of whitespace changes.
+  Runs made before M3 have no kept index; run them again to use this view.
+
+*Planned:* distributions of quality scores, and inspecting a dataset without a run.

@@ -1,8 +1,14 @@
 //! Cleaning pipelines: compiling a recipe, processing documents, and collecting statistics.
 //!
-//! Steps run per document, so a batch of documents is processed in parallel with rayon.
+//! Most steps work on one document at a time, so batches are processed in parallel with rayon.
 //! A document stops at the first step that drops it; that step and rule are recorded.
+//!
+//! Dedup steps need to see the whole corpus. Before the final pass, a run makes one extra pass
+//! per dedup step: it processes documents up to that step, fingerprints the ones that reach it,
+//! and resolves which are duplicates ([`Decisions`]). The final pass then drops them at that step.
 
+mod dedup;
+mod kept;
 mod preview;
 mod removed;
 mod run;
@@ -11,11 +17,13 @@ mod storage;
 
 use std::collections::HashMap;
 
-use aeon_shared::{PipelineSpec, RuleCount, StepStats};
+use aeon_shared::{PipelineSpec, RuleCount, StepConfig, StepStats};
 
 use crate::error::{AppError, AppResult};
+use dedup::{DedupMethod, Duplicates};
 use steps::{Step, Verdict};
 
+pub use kept::{browse_changed, sample_removed};
 pub use preview::preview;
 pub use removed::RemovedReader;
 pub use run::{RunRequest, read_report, run};
@@ -32,12 +40,17 @@ pub const RUN_TEMP_PREFIX: &str = ".running-";
 /// Rule recorded when a normalizer leaves a document with no visible text.
 pub const EMPTY_AFTER_STEP: &str = "empty_after_step";
 
+enum StepImpl {
+    Doc(Box<dyn Step>),
+    Dedup(DedupMethod),
+}
+
 pub struct CompiledStep {
     /// Index in the recipe's step list (disabled steps included), as shown to the user.
     pub index: u64,
     pub kind: &'static str,
     pub label: String,
-    step: Box<dyn Step>,
+    imp: StepImpl,
 }
 
 pub struct Pipeline {
@@ -45,17 +58,33 @@ pub struct Pipeline {
     pub steps: Vec<CompiledStep>,
 }
 
+/// Resolved duplicates for each dedup step, by step position.
+#[derive(Default)]
+pub struct Decisions {
+    by_pos: HashMap<usize, Duplicates>,
+}
+
+impl Decisions {
+    pub fn set(&mut self, pos: usize, dups: Duplicates) {
+        self.by_pos.insert(pos, dups);
+    }
+}
+
 pub struct Dropped {
     /// Position in `Pipeline::steps`.
     pub pos: usize,
     pub rule: &'static str,
     pub detail: String,
+    /// For duplicates: the input row of the document kept instead.
+    pub related_row: Option<u64>,
 }
 
 pub struct Outcome {
-    /// Final text, or the text as it was when the document was dropped.
+    /// Final text, or the text as it was when the document was dropped (or reached the stop step).
     pub text: String,
     pub dropped: Option<Dropped>,
+    /// The document got to the requested stop step (fingerprint passes).
+    pub reached_stop: bool,
     /// Bit `i` is set when step `i` changed the text.
     pub modified: u64,
     pub chars_in: u64,
@@ -71,14 +100,13 @@ impl Pipeline {
         let mut steps = Vec::new();
         for (index, s) in spec.steps.iter().enumerate().filter(|(_, s)| s.enabled) {
             let info = s.config.info();
-            let step = steps::build(&s.config)
-                .map_err(|e| AppError::InvalidInput(format!("Step {} ({}): {e}", index + 1, info.label)))?;
-            steps.push(CompiledStep {
-                index: index as u64,
-                kind: info.kind,
-                label: info.label.to_string(),
-                step,
-            });
+            let context = |e: AppError| AppError::InvalidInput(format!("Step {} ({}): {e}", index + 1, info.label));
+            let imp = match &s.config {
+                StepConfig::ExactDedup(c) => StepImpl::Dedup(DedupMethod::exact(c)),
+                StepConfig::NearDedup(c) => StepImpl::Dedup(DedupMethod::near(c).map_err(context)?),
+                other => StepImpl::Doc(steps::build(other).map_err(context)?),
+            };
+            steps.push(CompiledStep { index: index as u64, kind: info.kind, label: info.label.to_string(), imp });
         }
         if steps.is_empty() {
             return Err(AppError::InvalidInput("The pipeline has no enabled steps".into()));
@@ -89,29 +117,87 @@ impl Pipeline {
         Ok(Self { name: spec.name.trim().to_string(), steps })
     }
 
-    pub fn process(&self, mut text: String) -> Outcome {
+    /// Positions of dedup steps, in order.
+    pub fn dedup_positions(&self) -> Vec<usize> {
+        (0..self.steps.len()).filter(|&p| matches!(self.steps[p].imp, StepImpl::Dedup(_))).collect()
+    }
+
+    fn dedup(&self, pos: usize) -> &DedupMethod {
+        match &self.steps[pos].imp {
+            StepImpl::Dedup(d) => d,
+            StepImpl::Doc(_) => panic!("step {pos} is not a dedup step"),
+        }
+    }
+
+    pub fn bands(&self, pos: usize) -> usize {
+        self.dedup(pos).bands()
+    }
+
+    pub fn fingerprint(&self, pos: usize, text: &str) -> Option<Vec<u64>> {
+        self.dedup(pos).fingerprint(text)
+    }
+
+    /// Applies the per-document step at `pos` (dedup steps do nothing); used to rebuild
+    /// before/after examples.
+    pub fn apply_doc_step(&self, pos: usize, text: &mut String) {
+        if let StepImpl::Doc(s) = &self.steps[pos].imp {
+            let _ = s.apply(text);
+        }
+    }
+
+    /// Runs `text` (input row `row`) through the steps. With `stop_at`, stops when the document
+    /// reaches that (dedup) step. A dedup step without decisions keeps every document.
+    pub fn process(&self, mut text: String, row: u64, decisions: &Decisions, stop_at: Option<usize>) -> Outcome {
         let chars_in = text.chars().count() as u64;
         let mut chars = chars_in;
         let mut modified = 0u64;
         let mut chars_after = Vec::with_capacity(self.steps.len());
+        let outcome = |text, dropped, reached_stop, modified, chars_after| Outcome {
+            text,
+            dropped,
+            reached_stop,
+            modified,
+            chars_in,
+            chars_after,
+        };
         for (pos, s) in self.steps.iter().enumerate() {
-            match s.step.apply(&mut text) {
+            if stop_at == Some(pos) {
+                return outcome(text, None, true, modified, chars_after);
+            }
+            let verdict = match &s.imp {
+                StepImpl::Doc(step) => step.apply(&mut text),
+                StepImpl::Dedup(method) => match decisions.by_pos.get(&pos).and_then(|d| d.get(&row)) {
+                    Some(&kept) => {
+                        let dropped = Dropped {
+                            pos,
+                            rule: method.rule(),
+                            detail: format!("duplicate of input row {}", kept + 1),
+                            related_row: Some(kept),
+                        };
+                        return outcome(text, Some(dropped), false, modified, chars_after);
+                    }
+                    None => Verdict::Unchanged,
+                },
+            };
+            match verdict {
                 Verdict::Unchanged => {}
                 Verdict::Changed => {
                     modified |= 1 << pos;
                     chars = text.chars().count() as u64;
                     if text.trim().is_empty() {
-                        let dropped = Dropped { pos, rule: EMPTY_AFTER_STEP, detail: "no text left".into() };
-                        return Outcome { text, dropped: Some(dropped), modified, chars_in, chars_after };
+                        let dropped =
+                            Dropped { pos, rule: EMPTY_AFTER_STEP, detail: "no text left".into(), related_row: None };
+                        return outcome(text, Some(dropped), false, modified, chars_after);
                     }
                 }
                 Verdict::Drop { rule, detail } => {
-                    return Outcome { text, dropped: Some(Dropped { pos, rule, detail }), modified, chars_in, chars_after };
+                    let dropped = Dropped { pos, rule, detail, related_row: None };
+                    return outcome(text, Some(dropped), false, modified, chars_after);
                 }
             }
             chars_after.push(chars);
         }
-        Outcome { text, dropped: None, modified, chars_in, chars_after }
+        outcome(text, None, false, modified, chars_after)
     }
 }
 
@@ -200,7 +286,7 @@ impl StatsAccumulator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aeon_shared::{LengthFilter, NormalizeWhitespace, PipelineStep, StepConfig};
+    use aeon_shared::{ExactDedup, LengthFilter, NormalizeWhitespace, PipelineStep};
 
     fn spec() -> PipelineSpec {
         PipelineSpec {
@@ -220,6 +306,10 @@ mod tests {
         }
     }
 
+    fn process(p: &Pipeline, text: &str) -> Outcome {
+        p.process(text.to_string(), 0, &Decisions::default(), None)
+    }
+
     #[test]
     fn disabled_steps_are_skipped_but_keep_their_index() {
         let p = Pipeline::compile(&spec()).unwrap();
@@ -231,7 +321,7 @@ mod tests {
         let p = Pipeline::compile(&spec()).unwrap();
         let mut acc = StatsAccumulator::new(&p);
         for text in ["  three  words here  ", "two words", "   \n  ", "already fine text"] {
-            acc.add(&p.process(text.to_string()));
+            acc.add(&process(&p, text));
         }
         let s = acc.step_stats(&p);
         assert_eq!((acc.docs_in, acc.docs_out), (4, 2));
@@ -242,6 +332,28 @@ mod tests {
         assert_eq!((s[1].docs_in, s[1].dropped), (3, 1));
         assert_eq!(s[1].drops_by_rule[0].rule, "min_words");
         assert_eq!(acc.chars_out, "three words here".len() as u64 + "already fine text".len() as u64);
+    }
+
+    #[test]
+    fn dedup_step_drops_rows_from_decisions_and_stop_at_halts_before_it() {
+        let mut s = spec();
+        s.steps.push(PipelineStep { enabled: true, config: StepConfig::ExactDedup(ExactDedup::default()) });
+        let p = Pipeline::compile(&s).unwrap();
+        assert_eq!(p.dedup_positions(), vec![2]);
+
+        // Fingerprint pass: normalization runs, then the document stops at the dedup step.
+        let o = p.process("  three   words here ".into(), 0, &Decisions::default(), Some(2));
+        assert!(o.reached_stop && o.dropped.is_none());
+        assert_eq!(o.text, "three words here");
+        // Documents filtered before the dedup step never reach it.
+        assert!(!p.process("two words".into(), 1, &Decisions::default(), Some(2)).reached_stop);
+
+        let mut decisions = Decisions::default();
+        decisions.set(2, Duplicates::from([(7, 3)]));
+        let dup = p.process("some three words".into(), 7, &decisions, None);
+        let d = dup.dropped.unwrap();
+        assert_eq!((d.pos, d.rule, d.related_row), (2, dedup::EXACT_RULE, Some(3)));
+        assert!(p.process("some three words".into(), 3, &decisions, None).dropped.is_none());
     }
 
     /// Throughput of each template step. Run with:
@@ -270,19 +382,21 @@ mod tests {
             .collect();
         let chars: usize = docs.iter().map(|d| d.len()).sum();
         let spec = PipelineSpec::template("bench");
+        let report = |label: &str, secs: f64| {
+            println!("{label:<28} {:>8.0} docs/s {:>7.1} MB/s", docs.len() as f64 / secs, chars as f64 / secs / 1e6);
+        };
         for (i, step) in spec.steps.iter().enumerate() {
             let single = PipelineSpec { name: "b".into(), description: None, steps: vec![step.clone()] };
             let p = Pipeline::compile(&single).unwrap();
             let t = std::time::Instant::now();
-            let _: Vec<_> = docs.par_iter().map(|d| p.process(d.clone())).collect();
-            let secs = t.elapsed().as_secs_f64();
-            println!("{:>2}. {:<24} {:>8.0} docs/s {:>7.1} MB/s", i + 1, p.steps[0].label, docs.len() as f64 / secs, chars as f64 / secs / 1e6);
+            if p.dedup_positions().is_empty() {
+                let _: Vec<_> = docs.par_iter().map(|d| process(&p, d)).collect();
+            } else {
+                // Dedup cost is the fingerprinting; resolution is a sort.
+                let _: Vec<_> = docs.par_iter().map(|d| p.fingerprint(0, d)).collect();
+            }
+            report(&format!("{:>2}. {}", i + 1, p.steps[0].label), t.elapsed().as_secs_f64());
         }
-        let p = Pipeline::compile(&spec).unwrap();
-        let t = std::time::Instant::now();
-        let _: Vec<_> = docs.par_iter().map(|d| p.process(d.clone())).collect();
-        let secs = t.elapsed().as_secs_f64();
-        println!("    whole template           {:>8.0} docs/s {:>7.1} MB/s", docs.len() as f64 / secs, chars as f64 / secs / 1e6);
     }
 
     #[test]

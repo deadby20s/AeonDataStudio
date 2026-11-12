@@ -383,6 +383,7 @@ fn PipelineEditor() -> impl IntoView {
                         let cat = match k.category {
                             StepCategory::Normalize => "Normalize",
                             StepCategory::Filter => "Filter",
+                            StepCategory::Dedup => "Dedup",
                         };
                         view! { <option value=i.to_string()>{format!("{cat}: {}", k.label)}</option> }
                     })
@@ -454,10 +455,12 @@ fn StepCard(key: u64, edit: impl Fn(&dyn Fn(&mut Draft)) + Copy + Send + Sync + 
             let cat_class = match info.category {
                 StepCategory::Normalize => "badge-cat normalize",
                 StepCategory::Filter => "badge-cat filter",
+                StepCategory::Dedup => "badge-cat dedup",
             };
             let cat_label = match info.category {
                 StepCategory::Normalize => "Normalize",
                 StepCategory::Filter => "Filter",
+                StepCategory::Dedup => "Dedup",
             };
             let json = step_json(&s);
             let sum = summary(&s);
@@ -766,8 +769,17 @@ fn TryPanel() -> impl IntoView {
 fn PreviewResult(preview: PipelinePreview) -> impl IntoView {
     let p = preview;
     let removed = p.sample_docs - p.docs_out;
+    let has_dedup = p.steps.iter().any(|s| s.kind.ends_with("_dedup"));
     view! {
         <div class="preview">
+            {has_dedup
+                .then(|| {
+                    view! {
+                        <p class="muted small">
+                            "Dedup steps only compare documents within the sample here; a full run compares the whole dataset and usually finds more."
+                        </p>
+                    }
+                })}
             <p>
                 <strong>{format!("{} of {} sample documents kept", format::count(p.docs_out), format::count(p.sample_docs))}</strong>
                 <span class="muted">

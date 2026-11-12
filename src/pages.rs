@@ -13,6 +13,7 @@ async fn open_workspace(ctx: AppCtx, path: String) -> Result<(), String> {
     ctx.selected_dataset.set(None);
     ctx.selected_run.set(None);
     ctx.draft.set(None);
+    ctx.inspect_run.set(None);
     ctx.refresh().await.map_err(|e| e.to_string())
 }
 
@@ -134,19 +135,6 @@ pub fn WelcomePage() -> impl IntoView {
                     </ul>
                 </Show>
             </div>
-        </div>
-    }
-}
-
-#[component]
-pub fn PlaceholderPage(title: &'static str, milestone: &'static str, body: &'static str) -> impl IntoView {
-    view! {
-        <header class="page-header">
-            <h1>{title}</h1>
-        </header>
-        <div class="empty">
-            <h2>"Coming in " {milestone}</h2>
-            <p class="muted">{body}</p>
         </div>
     }
 }
