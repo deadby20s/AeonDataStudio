@@ -1,4 +1,4 @@
-use aeon_shared::{JobId, JobState, JobStatus};
+use aeon_shared::{JobId, JobLink, JobState, JobStatus};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
@@ -11,6 +11,8 @@ async fn open_workspace(ctx: AppCtx, path: String) -> Result<(), String> {
     api::open_workspace(&path).await.map_err(|e| e.to_string())?;
     ctx.page.set(Page::Datasets);
     ctx.selected_dataset.set(None);
+    ctx.selected_run.set(None);
+    ctx.draft.set(None);
     ctx.refresh().await.map_err(|e| e.to_string())
 }
 
@@ -239,6 +241,32 @@ pub fn JobRow(id: JobId, error: RwSignal<Option<String>>) -> impl IntoView {
                 <Show when=move || active.get()>
                     <button class="small-button" on:click=cancel>"Cancel"</button>
                 </Show>
+                {move || {
+                    job.with(|j| j.as_ref().and_then(|j| j.link.clone()))
+                        .map(|link| {
+                            let label = match &link {
+                                JobLink::Dataset(_) => "Open dataset",
+                                JobLink::Run(_) => "Open run",
+                            };
+                            view! {
+                                <button
+                                    class="small-button"
+                                    on:click=move |_| match link.clone() {
+                                        JobLink::Dataset(id) => {
+                                            ctx.selected_dataset.set(Some(id));
+                                            ctx.page.set(Page::Datasets);
+                                        }
+                                        JobLink::Run(id) => {
+                                            ctx.selected_run.set(Some(id));
+                                            ctx.page.set(Page::Runs);
+                                        }
+                                    }
+                                >
+                                    {label}
+                                </button>
+                            }
+                        })
+                }}
             </div>
             <div
                 class="progress"

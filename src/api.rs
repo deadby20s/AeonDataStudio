@@ -3,7 +3,8 @@
 
 use aeon_shared::{
     AppInfo, DatasetManifest, DatasetSummary, Document, DocumentPage, ImportRequest, JOB_UPDATE_EVENT, JobId,
-    JobStatus, WorkspaceInfo,
+    JobStatus, PipelinePreview, PipelineSpec, PipelineSummary, RemovedDoc, RemovedPage, RunReport, RunSummary,
+    WorkspaceInfo,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -153,6 +154,106 @@ pub async fn get_document(dataset_id: &str, row: u64) -> ApiResult<Document> {
 
 pub async fn delete_dataset(dataset_id: &str) -> ApiResult<()> {
     call("delete_dataset", &DatasetArg { dataset_id }).await
+}
+
+#[derive(Serialize)]
+struct FileArg<'a> {
+    file: &'a str,
+}
+
+#[derive(Serialize)]
+struct SavePipelineArgs<'a> {
+    spec: &'a PipelineSpec,
+    file: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreviewArgs<'a> {
+    spec: &'a PipelineSpec,
+    dataset_id: &'a str,
+    sample_size: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RunArgs<'a> {
+    spec: &'a PipelineSpec,
+    dataset_id: &'a str,
+    output_name: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RunIdArg<'a> {
+    run_id: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowseRemovedArgs<'a> {
+    run_id: &'a str,
+    start: u64,
+    limit: u64,
+    step_index: Option<u64>,
+    rule: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemovedArgs<'a> {
+    run_id: &'a str,
+    index: u64,
+}
+
+pub async fn list_pipelines() -> ApiResult<Vec<PipelineSummary>> {
+    call("list_pipelines", &NoArgs {}).await
+}
+
+pub async fn get_pipeline(file: &str) -> ApiResult<PipelineSpec> {
+    call("get_pipeline", &FileArg { file }).await
+}
+
+pub async fn save_pipeline(spec: &PipelineSpec, file: Option<&str>) -> ApiResult<String> {
+    call("save_pipeline", &SavePipelineArgs { spec, file }).await
+}
+
+pub async fn delete_pipeline(file: &str) -> ApiResult<()> {
+    call("delete_pipeline", &FileArg { file }).await
+}
+
+pub async fn preview_pipeline(spec: &PipelineSpec, dataset_id: &str, sample_size: u64) -> ApiResult<PipelinePreview> {
+    call("preview_pipeline", &PreviewArgs { spec, dataset_id, sample_size }).await
+}
+
+pub async fn start_pipeline_run(spec: &PipelineSpec, dataset_id: &str, output_name: &str) -> ApiResult<JobId> {
+    call("start_pipeline_run", &RunArgs { spec, dataset_id, output_name }).await
+}
+
+pub async fn list_runs() -> ApiResult<Vec<RunSummary>> {
+    call("list_runs", &NoArgs {}).await
+}
+
+pub async fn get_run(run_id: &str) -> ApiResult<RunReport> {
+    call("get_run", &RunIdArg { run_id }).await
+}
+
+pub async fn browse_removed(
+    run_id: &str,
+    start: u64,
+    limit: u64,
+    step_index: Option<u64>,
+    rule: Option<&str>,
+) -> ApiResult<RemovedPage> {
+    call("browse_removed", &BrowseRemovedArgs { run_id, start, limit, step_index, rule }).await
+}
+
+pub async fn get_removed(run_id: &str, index: u64) -> ApiResult<RemovedDoc> {
+    call("get_removed", &RemovedArgs { run_id, index }).await
+}
+
+pub async fn delete_run(run_id: &str) -> ApiResult<()> {
+    call("delete_run", &RunIdArg { run_id }).await
 }
 
 pub async fn list_jobs() -> ApiResult<Vec<JobStatus>> {

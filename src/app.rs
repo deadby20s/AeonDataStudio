@@ -5,6 +5,8 @@ use leptos::task::spawn_local;
 use crate::api;
 use crate::datasets::DatasetsPage;
 use crate::pages::{JobsPage, PlaceholderPage, SettingsPage, WelcomePage};
+use crate::pipelines::{Draft, PipelinesPage};
+use crate::runs::RunsPage;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
@@ -44,6 +46,10 @@ pub struct AppCtx {
     pub page: RwSignal<Page>,
     /// Dataset shown on the Datasets page; `None` shows the list.
     pub selected_dataset: RwSignal<Option<String>>,
+    /// Run shown on the Runs page; `None` shows the list.
+    pub selected_run: RwSignal<Option<String>>,
+    /// Pipeline being edited; `None` shows the list of saved pipelines.
+    pub draft: RwSignal<Option<Draft>>,
 }
 
 impl AppCtx {
@@ -57,6 +63,8 @@ impl AppCtx {
             jobs: RwSignal::new(Vec::new()),
             page: RwSignal::new(Page::Datasets),
             selected_dataset: RwSignal::new(None),
+            selected_run: RwSignal::new(None),
+            draft: RwSignal::new(None),
         }
     }
 
@@ -161,6 +169,9 @@ fn Shell() -> impl IntoView {
                                             if p == Page::Datasets {
                                                 ctx.selected_dataset.set(None);
                                             }
+                                            if p == Page::Runs {
+                                                ctx.selected_run.set(None);
+                                            }
                                             ctx.page.set(p);
                                         }
                                     >
@@ -184,26 +195,8 @@ fn Shell() -> impl IntoView {
             <main class="content">
                 {move || match ctx.page.get() {
                     Page::Datasets => view! { <DatasetsPage/> }.into_any(),
-                    Page::Pipelines => {
-                        view! {
-                            <PlaceholderPage
-                                title="Pipelines"
-                                milestone="M2"
-                                body="Build cleaning pipelines from normalization, filter and dedup steps, and save them as TOML recipes."
-                            />
-                        }
-                            .into_any()
-                    }
-                    Page::Runs => {
-                        view! {
-                            <PlaceholderPage
-                                title="Runs"
-                                milestone="M2"
-                                body="Each pipeline run will be listed here with per-step counts and the documents it removed."
-                            />
-                        }
-                            .into_any()
-                    }
+                    Page::Pipelines => view! { <PipelinesPage/> }.into_any(),
+                    Page::Runs => view! { <RunsPage/> }.into_any(),
                     Page::Inspector => {
                         view! {
                             <PlaceholderPage

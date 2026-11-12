@@ -1,6 +1,6 @@
 # Architecture
 
-## Current state (after M1)
+## Current state (after M2)
 
 The Cargo workspace has three crates:
 
@@ -43,14 +43,31 @@ The Cargo workspace has three crates:
   decompression and progress counting); `mod.rs` is the import job.
 - Dataset ids are restricted to `[a-z0-9-]` and checked before any path is built from them.
 
+- `dataset/parts.rs`: writing and reading a sequence of Parquet part files; shared by
+  datasets and by runs' removed-document logs.
+- `pipeline/`: `steps.rs` has the `Step` trait (`apply(&mut String) -> Unchanged | Changed |
+  Drop { rule, detail }`) and every normalizer and filter; `mod.rs` compiles a recipe into
+  steps, processes one document, and aggregates per-step statistics; `run.rs` is the run job;
+  `preview.rs` samples and previews; `removed.rs` writes and reads removed documents;
+  `storage.rs` saves recipes as TOML.
+- Shared crate: `pipeline.rs` defines recipes (`PipelineSpec`, `StepConfig`), run reports,
+  and `STEP_KINDS`, a description of every step's settings that the editor uses to build
+  its forms. Adding a step type means adding a variant, its `STEP_KINDS` entry, and its
+  `Step` impl; no UI code.
+- Jobs can finish with a link (`JobLink::Dataset` / `JobLink::Run`) shown as an "Open" button.
+
 **Commands:** `get_app_info`, `pick_folder`, `open_workspace`, `close_workspace`,
 `forget_recent_workspace`, `list_datasets`, `pick_import_files`, `pick_import_folder`,
 `start_import`, `get_dataset`, `browse_documents`, `get_document`, `delete_dataset`,
+`list_pipelines`, `get_pipeline`, `save_pipeline`, `delete_pipeline`, `preview_pipeline`,
+`start_pipeline_run`, `list_runs`, `get_run`, `browse_removed`, `get_removed`, `delete_run`,
 `list_jobs`, `cancel_job`, `clear_finished_jobs`, `start_self_test_job` (diagnostic job that
 only reports progress). Commands that read files run on a blocking thread pool.
 
 **Frontend** additions: `datasets.rs` holds the dataset list, import form, detail page
-(stats, histogram, import report) and document browser.
+(stats, histogram, import report, lineage) and document browser; `pipelines.rs` the recipe
+list, step editor and preview/run panel; `runs.rs` the run list, funnel and removed-document
+browser. The draft being edited lives in the app context, so it survives switching pages.
 
 Measured on a 300k-document, 40 MB gzipped JSONL file (debug build): import 6.5 s, opening the
 dataset 0.1 s, a page of documents 0.05 s, a full-dataset search with no hits 1.8 s.
@@ -115,8 +132,7 @@ native targets.
 
 ## Workspace layout on disk
 
-`studio.toml`, `catalog.sqlite`, the four folders and `datasets/<id>/` (manifest + Parquet
-parts) exist today; `runs/`, `pipelines/` and `exports/` are still empty.
+Everything below exists today except `exports/`, which is still empty.
 
 The user picks a workspace folder. Inside it:
 
@@ -133,8 +149,8 @@ workspace/
 ├── runs/
 │   └── <run-id>/
 │       ├── pipeline.toml    # frozen copy of the recipe used
-│       ├── stats.json       # per-step counts, timing
-│       └── removed/         # dropped docs with step + reason, for inspection
+│       ├── report.json      # per-step counts, rules, timing, removed-doc parts
+│       └── removed/         # dropped docs with step + rule + detail, for inspection
 └── exports/
 ```
 
@@ -172,6 +188,10 @@ Record non-obvious decisions here, newest first.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-11-12 | In recipes, a missing threshold means "rule off"; recommended values are only applied when a step is added | TOML has no null, so "off" must be representable by absence; otherwise a rule switched off would come back on reload |
+| 2026-11-12 | Steps work on one document at a time; batches are processed in parallel with rayon | All M2 steps only need the document itself, which makes parallelism trivial; corpus-wide steps (dedup, M3) will be separate passes |
+| 2026-11-12 | A run stores removed documents with full text | Needed to inspect why documents were dropped; compressed Parquet keeps the cost reasonable |
+| 2026-11-12 | Step settings are described once in the shared crate (`STEP_KINDS`) and the editor builds forms from that | New step types need no UI work, and the backend and UI can't disagree about field names |
 | 2026-11-12 | Import never fails on a bad record, only on a bad file | One broken line in a 300k-line file shouldn't cost the whole import; a wrong column name affects every record, so it should fail fast with the available names |
 | 2026-11-12 | Search scans with a 2 s budget per request instead of building an index | Simple and good enough for single-machine datasets; an index can come later if needed |
 | 2026-11-12 | `zstd` dependency pinned to the version `parquet` uses | Two versions would each link the zstd C library and conflict |

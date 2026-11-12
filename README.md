@@ -7,7 +7,7 @@ shards. Everything runs locally.
 Built with [Tauri 2](https://tauri.app) (Rust backend) and [Leptos](https://leptos.dev)
 (WebAssembly frontend).
 
-> Early stage: you can import data (JSONL, JSON, text, CSV/TSV, Parquet, optionally `.gz`/`.zst`), see stats, and browse and search documents. Cleaning pipelines come next. See the [roadmap](docs/roadmap.md).
+> Early stage: you can import data (JSONL, JSON, text, CSV/TSV, Parquet, optionally `.gz`/`.zst`), browse and search it, and clean it with pipelines of normalizers and Gopher-style quality filters, previewing on a sample and inspecting every removed document. Deduplication comes next. See the [roadmap](docs/roadmap.md).
 
 ## Quick start
 

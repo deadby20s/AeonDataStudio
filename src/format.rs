@@ -31,3 +31,18 @@ pub fn count(n: u64) -> String {
     }
     out
 }
+
+/// `part / whole` as a percentage with one decimal, e.g. `12.5%`; `—` when `whole` is 0.
+pub fn percent(part: u64, whole: u64) -> String {
+    if whole == 0 { "—".into() } else { format!("{:.1}%", part as f64 / whole as f64 * 100.0) }
+}
+
+/// Duration between two timestamps, e.g. `4.2 s` or `3 min 05 s`.
+pub fn duration(start_ms: i64, end_ms: i64) -> String {
+    let ms = (end_ms - start_ms).max(0);
+    if ms < 60_000 {
+        format!("{:.1} s", ms as f64 / 1000.0)
+    } else {
+        format!("{} min {:02} s", ms / 60_000, (ms % 60_000) / 1000)
+    }
+}

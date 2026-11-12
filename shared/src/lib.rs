@@ -5,6 +5,9 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod pipeline;
+pub use pipeline::*;
+
 /// Name of the Tauri event emitted whenever a job's status changes.
 /// The payload is a [`JobStatus`].
 pub const JOB_UPDATE_EVENT: &str = "job://update";
@@ -225,6 +228,17 @@ pub struct DatasetManifest {
     pub stats: TextStats,
     /// Present when the dataset was created by an import.
     pub import: Option<ImportReport>,
+    /// Present when the dataset was created by a pipeline run.
+    #[serde(default)]
+    pub produced_by: Option<ProducedBy>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProducedBy {
+    pub run_id: String,
+    pub pipeline_name: String,
+    pub input_dataset_id: String,
+    pub input_name: String,
 }
 
 impl DatasetManifest {
@@ -342,4 +356,13 @@ pub struct JobStatus {
     pub message: Option<String>,
     pub started_at_ms: i64,
     pub finished_at_ms: Option<i64>,
+    /// What a completed job produced, for an "Open" button.
+    #[serde(default)]
+    pub link: Option<JobLink>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum JobLink {
+    Dataset(String),
+    Run(String),
 }

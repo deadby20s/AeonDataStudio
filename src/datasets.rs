@@ -10,7 +10,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api;
-use crate::app::use_app;
+use crate::app::{Page, use_app};
 use crate::format;
 use crate::pages::JobRow;
 
@@ -518,6 +518,28 @@ fn DatasetDetail(id: String) -> impl IntoView {
                         </div>
                     </header>
 
+                    {m.produced_by.clone().map(|p| {
+                        let run_id = p.run_id.clone();
+                        let input_id = p.input_dataset_id.clone();
+                        view! {
+                            <div class="lineage">
+                                <span class="muted">"Created by pipeline “" {p.pipeline_name} "” from "</span>
+                                <button class="link" on:click=move |_| ctx.selected_dataset.set(Some(input_id.clone()))>
+                                    {p.input_name}
+                                </button>
+                                <span class="spacer"></span>
+                                <button
+                                    class="small-button"
+                                    on:click=move |_| {
+                                        ctx.selected_run.set(Some(run_id.clone()));
+                                        ctx.page.set(Page::Runs);
+                                    }
+                                >
+                                    "Open run"
+                                </button>
+                            </div>
+                        }
+                    })}
                     <div class="stat-grid">
                         <Stat label="Documents" value=format::count(s.doc_count)/>
                         <Stat label="Characters" value=format::count(s.char_count)/>

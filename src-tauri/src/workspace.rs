@@ -79,8 +79,10 @@ impl Workspace {
         for dir in SUBDIRS {
             std::fs::create_dir_all(root.join(dir))?;
         }
-        crate::dataset::remove_stale_temp_dirs(&root.join("datasets"));
+        crate::dataset::remove_stale_temp_dirs(&root.join("datasets"), crate::dataset::TEMP_PREFIX);
+        crate::dataset::remove_stale_temp_dirs(&root.join("runs"), crate::pipeline::RUN_TEMP_PREFIX);
         let catalog = Catalog::open(&root.join(CATALOG_FILE))?;
+        catalog.fail_interrupted_runs(now_ms())?;
 
         Ok(Self { root: root.to_path_buf(), settings, catalog: Mutex::new(catalog) })
     }
@@ -99,6 +101,22 @@ impl Workspace {
             return Err(AppError::InvalidInput(format!("Invalid dataset id: {id:?}")));
         }
         Ok(self.datasets_dir().join(id))
+    }
+
+    pub fn runs_dir(&self) -> PathBuf {
+        self.root.join("runs")
+    }
+
+    pub fn pipelines_dir(&self) -> PathBuf {
+        self.root.join("pipelines")
+    }
+
+    /// Folder of a run. The id is validated so it can't point outside the workspace.
+    pub fn run_dir(&self, id: &str) -> AppResult<PathBuf> {
+        if !crate::dataset::is_valid_id(id) {
+            return Err(AppError::InvalidInput(format!("Invalid run id: {id:?}")));
+        }
+        Ok(self.runs_dir().join(id))
     }
 
     pub fn catalog(&self) -> AppResult<std::sync::MutexGuard<'_, Catalog>> {

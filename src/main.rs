@@ -3,6 +3,8 @@ mod app;
 mod datasets;
 mod format;
 mod pages;
+mod pipelines;
+mod runs;
 
 use app::App;
 use leptos::prelude::*;

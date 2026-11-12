@@ -20,11 +20,12 @@ Milestones are ordered; each one should leave the app usable.
       field name is only reported after the job starts); highlight search matches.
 
 ## M2: Cleaning pipeline
-- [ ] Step trait, registry, and executor with batching and `rayon` parallelism.
-- [ ] Normalization steps (Unicode, whitespace, encoding fixes).
-- [ ] Heuristic filters (length, language, character ratios, repetition, blocklists).
-- [ ] Pipeline editor UI; save/load TOML recipes.
-- [ ] Runs record removed documents with step and reason.
+- [x] Step trait, registry, and executor with batching and `rayon` parallelism.
+- [x] Normalization steps (Unicode, whitespace, encoding fixes).
+- [x] Heuristic filters (length, language, character ratios, word quality, repetition, blocklists).
+- [x] Pipeline editor UI; save/load TOML recipes; preview on a sample.
+- [x] Runs record removed documents with step and reason; Runs page with funnel and removed-document browser.
+- [ ] Follow-ups: time a full run in a release build; cancel button for a running preview.
 
 ## M3: Deduplication and inspection
 - [ ] Exact dedup.

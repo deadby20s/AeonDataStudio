@@ -142,6 +142,7 @@ pub fn run(ctx: &mut JobCtx, ws: Arc<Workspace>, req: ImportRequest) -> AppResul
         parts,
         stats,
         import: Some(ImportReport { request: req, files: reports, skipped, sample_errors }),
+        produced_by: None,
     };
     dataset::write_manifest(temp.path(), &manifest)?;
     let final_dir = temp.commit()?;
@@ -158,7 +159,7 @@ pub fn run(ctx: &mut JobCtx, ws: Arc<Workspace>, req: ImportRequest) -> AppResul
     if skipped_total > 0 {
         message.push_str(&format!(", skipped {skipped_total} records"));
     }
-    Ok(JobOutcome::Completed(Some(message)))
+    Ok(JobOutcome::Produced(message, aeon_shared::JobLink::Dataset(manifest.id.clone())))
 }
 
 pub fn summary_of(m: &DatasetManifest) -> DatasetSummary {
@@ -170,8 +171,10 @@ pub fn summary_of(m: &DatasetManifest) -> DatasetSummary {
         doc_count: Some(m.stats.doc_count),
         char_count: Some(m.stats.char_count),
         byte_size: Some(m.byte_size()),
-        source_desc: m.import.as_ref().map(source_desc),
-        parent_run_id: None,
+        source_desc: m.import.as_ref().map(source_desc).or_else(|| {
+            m.produced_by.as_ref().map(|p| format!("{} on {}", p.pipeline_name, p.input_name))
+        }),
+        parent_run_id: m.produced_by.as_ref().map(|p| p.run_id.clone()),
     }
 }
 

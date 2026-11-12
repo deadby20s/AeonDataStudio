@@ -6,14 +6,14 @@ use std::time::Duration;
 
 use aeon_shared::{
     AppInfo, DatasetManifest, DatasetSummary, Document, DocumentPage, ImportRequest, JobId, JobKind, JobStatus,
-    WorkspaceInfo,
+    PipelinePreview, PipelineSpec, PipelineSummary, RemovedDoc, RemovedPage, RunReport, RunSummary, WorkspaceInfo,
 };
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::dataset::{self, DatasetReader};
 use crate::error::{AppError, AppResult};
-use crate::{import, jobs};
+use crate::{import, jobs, pipeline};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -182,4 +182,120 @@ pub fn start_self_test_job(steps: u64, state: State<'_, AppState>) -> AppResult<
     state
         .jobs
         .spawn(JobKind::SelfTest, "Job runner self-test", jobs::self_test(steps, Duration::from_millis(50)))
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pipelines and runs
+// ---------------------------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn list_pipelines(state: State<'_, AppState>) -> AppResult<Vec<PipelineSummary>> {
+    let dir = state.workspace()?.pipelines_dir();
+    blocking(move || pipeline::list_pipelines(&dir)).await
+}
+
+#[tauri::command]
+pub async fn get_pipeline(file: String, state: State<'_, AppState>) -> AppResult<PipelineSpec> {
+    let dir = state.workspace()?.pipelines_dir();
+    blocking(move || pipeline::read_pipeline(&dir, &file)).await
+}
+
+/// Saves a pipeline. Without `file`, a new file is created from the name. Returns the file name.
+#[tauri::command]
+pub async fn save_pipeline(spec: PipelineSpec, file: Option<String>, state: State<'_, AppState>) -> AppResult<String> {
+    let dir = state.workspace()?.pipelines_dir();
+    blocking(move || pipeline::save_pipeline(&dir, &spec, file.as_deref())).await
+}
+
+#[tauri::command]
+pub async fn delete_pipeline(file: String, state: State<'_, AppState>) -> AppResult<()> {
+    let dir = state.workspace()?.pipelines_dir();
+    blocking(move || pipeline::delete_pipeline(&dir, &file)).await
+}
+
+/// Runs the pipeline on a sample of the dataset and returns statistics and examples.
+#[tauri::command]
+pub async fn preview_pipeline(
+    spec: PipelineSpec,
+    dataset_id: String,
+    sample_size: u64,
+    state: State<'_, AppState>,
+) -> AppResult<PipelinePreview> {
+    let dir = state.workspace()?.dataset_dir(&dataset_id)?;
+    blocking(move || pipeline::preview(&spec, &DatasetReader::open(&dir)?, sample_size)).await
+}
+
+#[tauri::command]
+pub fn start_pipeline_run(
+    spec: PipelineSpec,
+    dataset_id: String,
+    output_name: String,
+    state: State<'_, AppState>,
+) -> AppResult<JobId> {
+    pipeline::steps_check(&spec)?;
+    let ws = state.workspace()?;
+    ws.dataset_dir(&dataset_id)?;
+    let title = format!("Run \"{}\"", spec.name.trim());
+    let req = pipeline::RunRequest { spec, input_dataset_id: dataset_id, output_name };
+    state.jobs.spawn(JobKind::PipelineRun, title, move |ctx| pipeline::run(ctx, ws, req))
+}
+
+#[tauri::command]
+pub fn list_runs(state: State<'_, AppState>) -> AppResult<Vec<RunSummary>> {
+    state.workspace()?.catalog()?.list_runs()
+}
+
+#[tauri::command]
+pub async fn get_run(run_id: String, state: State<'_, AppState>) -> AppResult<RunReport> {
+    let ws = state.workspace()?;
+    blocking(move || pipeline::read_report(&ws, &run_id)).await
+}
+
+#[tauri::command]
+pub async fn browse_removed(
+    run_id: String,
+    start: u64,
+    limit: u64,
+    step_index: Option<u64>,
+    rule: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<RemovedPage> {
+    let ws = state.workspace()?;
+    blocking(move || {
+        let report = pipeline::read_report(&ws, &run_id)?;
+        let reader = pipeline::RemovedReader::new(&ws.run_dir(&run_id)?.join("removed"), report.removed_parts);
+        reader.browse(start, limit, step_index, rule.as_deref())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn get_removed(run_id: String, index: u64, state: State<'_, AppState>) -> AppResult<RemovedDoc> {
+    let ws = state.workspace()?;
+    blocking(move || {
+        let report = pipeline::read_report(&ws, &run_id)?;
+        pipeline::RemovedReader::new(&ws.run_dir(&run_id)?.join("removed"), report.removed_parts).get(index)
+    })
+    .await
+}
+
+/// Deletes a run's record and its removed-documents log. The output dataset is kept.
+#[tauri::command]
+pub async fn delete_run(run_id: String, state: State<'_, AppState>) -> AppResult<()> {
+    let ws = state.workspace()?;
+    let dir = ws.run_dir(&run_id)?;
+    {
+        let catalog = ws.catalog()?;
+        if catalog.list_runs()?.iter().any(|r| r.id == run_id && r.state == "running") {
+            return Err(AppError::InvalidInput("This run is still in progress. Cancel it first.".into()));
+        }
+        catalog.delete_run(&run_id)?;
+    }
+    blocking(move || {
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir)?;
+        }
+        Ok(())
+    })
+    .await
 }

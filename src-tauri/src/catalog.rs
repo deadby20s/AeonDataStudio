@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use aeon_shared::DatasetSummary;
+use aeon_shared::{DatasetSummary, RunSummary};
 use rusqlite::Connection;
 
 use crate::error::AppResult;
@@ -35,6 +35,12 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE datasets ADD COLUMN char_count INTEGER;
     ALTER TABLE datasets ADD COLUMN source_desc TEXT;
+    "#,
+    // 3: run totals and failure message
+    r#"
+    ALTER TABLE runs ADD COLUMN docs_in INTEGER;
+    ALTER TABLE runs ADD COLUMN docs_out INTEGER;
+    ALTER TABLE runs ADD COLUMN error TEXT;
     "#,
 ];
 
@@ -114,9 +120,91 @@ impl Catalog {
         Ok(())
     }
 
-    /// Returns whether a row was deleted.
+    /// Returns whether a row was deleted. Runs that used the dataset keep their history but
+    /// lose the link.
     pub fn delete_dataset(&self, id: &str) -> AppResult<bool> {
+        self.conn.execute("UPDATE runs SET input_dataset_id = NULL WHERE input_dataset_id = ?1", [id])?;
+        self.conn.execute("UPDATE runs SET output_dataset_id = NULL WHERE output_dataset_id = ?1", [id])?;
         Ok(self.conn.execute("DELETE FROM datasets WHERE id = ?1", [id])? > 0)
+    }
+
+    pub fn insert_run(&self, id: &str, pipeline_name: &str, input_dataset_id: &str, started_at_ms: i64) -> AppResult<()> {
+        self.conn.execute(
+            "INSERT INTO runs (id, pipeline_name, input_dataset_id, state, started_at_ms) VALUES (?1, ?2, ?3, 'running', ?4)",
+            rusqlite::params![id, pipeline_name, input_dataset_id, started_at_ms],
+        )?;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn finish_run(
+        &self,
+        id: &str,
+        state: &str,
+        output_dataset_id: Option<&str>,
+        docs_in: Option<u64>,
+        docs_out: Option<u64>,
+        finished_at_ms: i64,
+        error: Option<&str>,
+    ) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE runs SET state = ?2, output_dataset_id = ?3, docs_in = ?4, docs_out = ?5, finished_at_ms = ?6,
+                             error = ?7
+             WHERE id = ?1",
+            rusqlite::params![
+                id,
+                state,
+                output_dataset_id,
+                docs_in.map(|v| v as i64),
+                docs_out.map(|v| v as i64),
+                finished_at_ms,
+                error
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Runs left "running" by a crash are marked failed.
+    pub fn fail_interrupted_runs(&self, now_ms: i64) -> AppResult<usize> {
+        Ok(self.conn.execute(
+            "UPDATE runs SET state = 'failed', finished_at_ms = ?1, error = 'Interrupted (the app closed during the run)'
+             WHERE state = 'running'",
+            [now_ms],
+        )?)
+    }
+
+    pub fn list_runs(&self) -> AppResult<Vec<RunSummary>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT r.id, r.pipeline_name, r.input_dataset_id, di.name, r.output_dataset_id, dout.name, r.state,
+                    r.started_at_ms, r.finished_at_ms, r.docs_in, r.docs_out, r.error
+             FROM runs r
+             LEFT JOIN datasets di ON di.id = r.input_dataset_id
+             LEFT JOIN datasets dout ON dout.id = r.output_dataset_id
+             ORDER BY r.started_at_ms DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(RunSummary {
+                id: r.get(0)?,
+                pipeline_name: r.get(1)?,
+                input_dataset_id: r.get(2)?,
+                input_name: r.get(3)?,
+                output_dataset_id: r.get(4)?,
+                output_name: r.get(5)?,
+                state: r.get(6)?,
+                started_at_ms: r.get(7)?,
+                finished_at_ms: r.get(8)?,
+                docs_in: r.get::<_, Option<i64>>(9)?.map(|v| v as u64),
+                docs_out: r.get::<_, Option<i64>>(10)?.map(|v| v as u64),
+                error: r.get(11)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Deletes the run record. Datasets it produced are kept but lose the link.
+    pub fn delete_run(&self, id: &str) -> AppResult<bool> {
+        self.conn.execute("UPDATE datasets SET parent_run_id = NULL WHERE parent_run_id = ?1", [id])?;
+        Ok(self.conn.execute("DELETE FROM runs WHERE id = ?1", [id])? > 0)
     }
 
     #[cfg(test)]
@@ -168,6 +256,41 @@ mod tests {
         assert!(cat.delete_dataset("a").unwrap());
         assert!(!cat.delete_dataset("a").unwrap());
         assert_eq!(cat.list_datasets().unwrap(), vec![newer]);
+    }
+
+    #[test]
+    fn runs_link_datasets_and_survive_their_deletion() {
+        let cat = Catalog::open_in_memory().unwrap();
+        let input = DatasetSummary {
+            id: "in".into(),
+            name: "Input".into(),
+            description: None,
+            created_at_ms: 1,
+            doc_count: Some(10),
+            char_count: None,
+            byte_size: None,
+            source_desc: None,
+            parent_run_id: None,
+        };
+        cat.insert_dataset(&input).unwrap();
+        cat.insert_run("r1", "Clean", "in", 5).unwrap();
+        let output = DatasetSummary { id: "out".into(), name: "Output".into(), parent_run_id: Some("r1".into()), ..input.clone() };
+        cat.insert_dataset(&output).unwrap();
+        cat.finish_run("r1", "completed", Some("out"), Some(10), Some(7), 9, None).unwrap();
+
+        let runs = cat.list_runs().unwrap();
+        assert_eq!(runs[0].input_name.as_deref(), Some("Input"));
+        assert_eq!(runs[0].output_name.as_deref(), Some("Output"));
+        assert_eq!((runs[0].docs_in, runs[0].docs_out), (Some(10), Some(7)));
+
+        // Foreign keys are on: deleting linked rows must not fail.
+        assert!(cat.delete_dataset("in").unwrap());
+        assert!(cat.delete_run("r1").unwrap());
+        assert_eq!(cat.list_datasets().unwrap()[0].parent_run_id, None);
+
+        cat.insert_run("r2", "Clean", "out", 6).unwrap();
+        assert_eq!(cat.fail_interrupted_runs(7).unwrap(), 1);
+        assert_eq!(cat.list_runs().unwrap()[0].state, "failed");
     }
 
     #[test]

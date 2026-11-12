@@ -4,6 +4,7 @@ mod dataset;
 mod error;
 mod import;
 mod jobs;
+mod pipeline;
 mod state;
 mod workspace;
 
@@ -48,6 +49,17 @@ pub fn run() {
             commands::browse_documents,
             commands::get_document,
             commands::delete_dataset,
+            commands::list_pipelines,
+            commands::get_pipeline,
+            commands::save_pipeline,
+            commands::delete_pipeline,
+            commands::preview_pipeline,
+            commands::start_pipeline_run,
+            commands::list_runs,
+            commands::get_run,
+            commands::browse_removed,
+            commands::get_removed,
+            commands::delete_run,
             commands::list_jobs,
             commands::cancel_job,
             commands::clear_finished_jobs,

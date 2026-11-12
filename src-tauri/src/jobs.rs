@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use aeon_shared::{JOB_UPDATE_EVENT, JobId, JobKind, JobState, JobStatus, Progress};
+use aeon_shared::{JOB_UPDATE_EVENT, JobId, JobKind, JobLink, JobState, JobStatus, Progress};
 
 use crate::error::{AppError, AppResult, now_ms};
 
@@ -47,6 +47,8 @@ pub struct JobManager {
 /// Outcome a job function returns.
 pub enum JobOutcome {
     Completed(Option<String>),
+    /// Completed, with a link to what the job produced.
+    Produced(String, JobLink),
     Cancelled,
 }
 
@@ -71,6 +73,7 @@ impl JobManager {
             message: None,
             started_at_ms: now_ms(),
             finished_at_ms: None,
+            link: None,
         };
         self.lock()?.insert(id, JobEntry { status: status.clone(), cancel: cancel.clone() });
         self.events.job_updated(&status);
@@ -94,6 +97,14 @@ impl JobManager {
                             if msg.is_some() {
                                 s.message = msg;
                             }
+                        }
+                        Ok(Ok(JobOutcome::Produced(msg, link))) => {
+                            s.state = JobState::Completed;
+                            if let Some(total) = s.progress.total {
+                                s.progress.done = total;
+                            }
+                            s.message = Some(msg);
+                            s.link = Some(link);
                         }
                         Ok(Ok(JobOutcome::Cancelled)) => s.state = JobState::Cancelled,
                         Ok(Err(e)) => {

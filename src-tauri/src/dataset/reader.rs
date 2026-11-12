@@ -1,12 +1,11 @@
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use aeon_shared::{DatasetManifest, Document, DocumentPage, DocumentPreview};
 use arrow::array::{AsArray, StringArray};
 use arrow::record_batch::RecordBatch;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
+use super::parts::scan_parts;
 use super::read_manifest;
 use crate::error::{AppError, AppResult};
 
@@ -32,7 +31,6 @@ impl DatasetReader {
         Ok(Self { dir: dir.to_path_buf(), manifest: read_manifest(dir)? })
     }
 
-    #[cfg(test)]
     pub fn manifest(&self) -> &DatasetManifest {
         &self.manifest
     }
@@ -49,43 +47,21 @@ impl DatasetReader {
         limit: Option<u64>,
         mut visit: impl FnMut(u64, Row<'_>) -> bool,
     ) -> AppResult<()> {
-        let mut part_start = 0u64;
-        let mut remaining = limit;
-        for part in &self.manifest.parts {
-            let part_end = part_start + part.rows;
-            if start_row >= part_end {
-                part_start = part_end;
-                continue;
-            }
-            if remaining == Some(0) {
-                return Ok(());
-            }
-            let offset = start_row.saturating_sub(part_start);
-            let file = File::open(self.dir.join(&part.file))?;
-            let mut builder =
-                ParquetRecordBatchReaderBuilder::try_new(file)?.with_batch_size(1024).with_offset(offset as usize);
-            if let Some(n) = remaining {
-                builder = builder.with_limit(n as usize);
-            }
-            let mut row = part_start + offset;
-            for batch in builder.build()? {
-                let batch = batch?;
-                let (ids, texts, sources, metas) =
-                    (column(&batch, "id")?, column(&batch, "text")?, column(&batch, "source")?, column(&batch, "meta")?);
-                for i in 0..batch.num_rows() {
-                    let r = Row { id: ids.value(i), text: texts.value(i), source: sources.value(i), meta: metas.value(i) };
-                    if !visit(row, r) {
-                        return Ok(());
-                    }
-                    row += 1;
-                    if let Some(n) = remaining.as_mut() {
-                        *n = n.saturating_sub(1);
-                    }
+        let mut failure = None;
+        scan_parts(&self.dir, &self.manifest.parts, start_row, limit, |row, batch, i| {
+            let cols = (column(batch, "id"), column(batch, "text"), column(batch, "source"), column(batch, "meta"));
+            match cols {
+                (Ok(ids), Ok(texts), Ok(sources), Ok(metas)) => visit(
+                    row,
+                    Row { id: ids.value(i), text: texts.value(i), source: sources.value(i), meta: metas.value(i) },
+                ),
+                (Err(e), ..) | (_, Err(e), ..) | (_, _, Err(e), _) | (.., Err(e)) => {
+                    failure = Some(e);
+                    false
                 }
             }
-            part_start = part_end;
-        }
-        Ok(())
+        })?;
+        failure.map_or(Ok(()), Err)
     }
 
     /// One page of documents. With a `query`, only documents whose text contains it
@@ -154,7 +130,7 @@ impl DatasetReader {
     }
 }
 
-fn column<'a>(batch: &'a RecordBatch, name: &str) -> AppResult<&'a StringArray> {
+pub(crate) fn column<'a>(batch: &'a RecordBatch, name: &str) -> AppResult<&'a StringArray> {
     batch
         .column_by_name(name)
         .and_then(|c| c.as_string_opt::<i32>())
@@ -218,6 +194,7 @@ mod tests {
             parts,
             stats,
             import: None,
+            produced_by: None,
         };
         write_manifest(tmp.path(), &manifest).unwrap();
         let dir = tmp.commit().unwrap();

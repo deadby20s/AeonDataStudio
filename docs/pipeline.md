@@ -48,35 +48,42 @@ text bytes, shortest/longest document, and a length histogram with power-of-two 
 
 *Planned:* HTML extraction, source-code files, WARC.
 
-## 2. Normalize
+## 2. Normalize *(built in M2)*
 
-Make text consistent without changing meaning.
+Make text consistent without changing meaning. Normalizers never drop a document, except one
+left with no visible text (rule `empty_after_step`).
 
-- Fix encoding problems and invalid UTF-8.
-- Unicode normalization (NFC by default, NFKC optional).
-- Normalize line endings and whitespace; collapse runs of blank lines.
-- Strip HTML/boilerplate (navigation, cookie banners) from web text.
-- Optional PII masking: emails, phone numbers, IP addresses replaced with placeholders.
+| Step (`kind`) | What it does |
+|---|---|
+| `normalize_unicode` | NFC (default) or NFKC. Skipped quickly when text is already normalized. |
+| `clean_characters` | Fixes mojibake (UTF-8 read as Windows-1252, e.g. `cafÃ©` → `café`; only when the whole text can be reversed and the result has fewer telltale sequences), removes control characters (keeps `\n`, `\t`, `\r`) and zero-width characters, replaces non-breaking spaces. |
+| `normalize_whitespace` | Unifies line endings to `\n`, trims trailing spaces, collapses runs of spaces/tabs (indentation kept), limits consecutive blank lines, trims the document. |
 
-## 3. Filter
+*Planned:* HTML/boilerplate stripping, PII masking.
 
-Drop low-quality documents. Each filter records *which rule* removed a document.
+## 3. Filter *(heuristic filters built in M2)*
 
-**Heuristic filters** (cheap, run first):
-- Length: min/max characters or words.
-- Language ID with a confidence threshold; keep a chosen set of languages.
-- Character ratios: alphabetic, digit, symbol, uppercase, non-ASCII.
-- Repetition: share of duplicate lines, paragraphs and n-grams inside one document.
-- Line-level rules: lines ending in punctuation, bullet-only documents, "lorem ipsum",
-  "javascript is disabled" and similar boilerplate.
-- Word blocklists (configurable lists).
+Drop low-quality documents. A document stops at the first rule it fails; the step, rule
+name and a detail such as `12 words < 50` are recorded. Thresholds left empty turn that rule
+off. The recommended values come from DeepMind's Gopher paper (Rae et al., 2021).
 
-**Model-based filters** (optional, slower):
-- Perplexity under a small reference language model.
-- A quality classifier score.
+| Step (`kind`) | Rules |
+|---|---|
+| `length_filter` | `min_chars`, `max_chars`, `min_words` (50), `max_words` (100,000) |
+| `language_filter` | Detected language (whatlang, first 2,000 chars) must be in `keep` (ISO 639-3, e.g. `eng`) with at least `min_confidence` (0.5). Rules: `language`, `language_confidence`, `language_unknown`. |
+| `character_ratio_filter` | Over non-whitespace characters: `min_alpha_ratio` (0.5), `max_digit_ratio` (0.3), `max_symbol_ratio` (0.3), `max_uppercase_ratio` over letters (0.5), `max_replacement_ratio` for U+FFFD (0.01) |
+| `word_quality_filter` | Mean word length 3–10, ≥ 80% of words contain a letter, ≤ 0.1 `#`/`…` per word, ≤ 90% bullet lines, ≤ 30% lines ending in `…` |
+| `repetition_filter` | Duplicate lines ≤ 0.3, duplicate paragraphs ≤ 0.3, top 2/3/4-gram character share ≤ 0.20/0.18/0.16, characters in duplicated 5/10-grams ≤ 0.15/0.10 |
+| `blocklist_filter` | Whole-word / whole-phrase matches of `terms`; more than `max_hits` (0) drops the document |
 
-Filters can either **drop** a document or **tag** it with a score field, so the threshold can be
-chosen later by looking at the score distribution in the Inspector.
+Measured throughput in a release build (synthetic ~700-character documents, all cores):
+about 147k documents/s (105 MB/s) for the whole template; language detection is the slowest
+step at about 127 MB/s, every other step runs at 450 MB/s or more. Benchmark:
+`cargo test --release -p aeondatastudio bench_steps -- --ignored --nocapture`.
+
+*Planned:* model-based filters (perplexity under a small reference model, a quality
+classifier), and tagging documents with scores instead of dropping them so thresholds can be
+chosen from the score distribution.
 
 ## 4. Deduplicate
 
@@ -117,38 +124,46 @@ encoding), append an end-of-document token, and report token counts per source.
 Every export includes a `manifest.json`: source datasets, pipeline recipe, tool version,
 tokenizer, document and token counts, and file checksums.
 
-## Pipeline recipe format
+## Pipeline recipe format *(built in M2)*
 
-Pipelines are saved as TOML so they can be read, diffed and kept in version control.
+Pipelines are saved as TOML in the workspace's `pipelines/` folder, so they can be read,
+diffed and kept in version control. Each run also stores the exact recipe it used in
+`runs/<id>/pipeline.toml`.
 
 ```toml
-name = "web-clean"
-version = 1
+name = "Web cleanup"
+description = "Normalization plus Gopher-style quality filters for web text."
 
 [[steps]]
+enabled = true
 kind = "normalize_unicode"
-form = "NFC"
+form = "nfc"
 
 [[steps]]
-kind = "length_filter"
-min_chars = 200
-max_chars = 100000
-
-[[steps]]
+enabled = true
 kind = "language_filter"
-keep = ["en"]
-min_confidence = 0.65
+keep = ["eng"]
+min_confidence = 0.5
 
 [[steps]]
-kind = "repetition_filter"
-max_duplicate_line_fraction = 0.3
-
-[[steps]]
-kind = "minhash_dedup"
-ngram = 5
-num_perm = 128
-threshold = 0.8
+enabled = false          # kept in the recipe, skipped when running
+kind = "length_filter"
+min_words = 50           # max_words is absent, so that rule is off
 ```
+
+A missing threshold means the rule is **off** (TOML has no null). The recommended values are
+only filled in when a step is added in the editor.
+
+## Running a pipeline *(built in M2)*
+
+- **Preview** runs the recipe (including unsaved edits) on a sample of 1,000–20,000 documents
+  taken from 20 evenly spaced places in the dataset, and shows per-step counts plus up to 3
+  examples per removal rule and before/after snippets for normalizers.
+- **Run** processes the whole dataset as a background job (batches of 4,096 documents,
+  processed in parallel) and creates a new dataset; the input is never modified. The run
+  records per-step statistics and every removed document with its step, rule, detail and
+  text (as it was when removed) in `runs/<id>/removed/*.parquet`.
+- The Runs page shows the per-step funnel; clicking a rule lists the documents it removed.
 
 ## Inspection
 

@@ -6,3 +6,6 @@ description = "Types shared between the AeonDataStudio frontend and backend"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"

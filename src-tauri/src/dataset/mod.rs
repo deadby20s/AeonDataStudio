@@ -10,6 +10,7 @@
 //! Datasets are written into `datasets/.importing-<id>/` and renamed into place only when
 //! complete, so a crash or cancel never leaves a half-written dataset.
 
+pub mod parts;
 mod reader;
 mod stats;
 mod writer;
@@ -22,7 +23,8 @@ use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 
 use crate::error::{AppError, AppResult, now_ms};
 
-pub use reader::DatasetReader;
+pub use reader::{DatasetReader, PREVIEW_CHARS};
+pub(crate) use reader::column;
 pub use writer::{DatasetWriter, NewDoc};
 
 pub const MANIFEST_FILE: &str = "manifest.json";
@@ -46,8 +48,13 @@ pub fn is_valid_id(id: &str) -> bool {
 
 /// A new, unused dataset id such as `ds-mhw3k2x1`.
 pub fn new_id(datasets_dir: &Path) -> String {
-    let base = format!("ds-{}", to_base36(now_ms().max(0) as u64));
-    let taken = |id: &str| datasets_dir.join(id).exists() || datasets_dir.join(format!("{TEMP_PREFIX}{id}")).exists();
+    new_prefixed_id(datasets_dir, "ds", TEMP_PREFIX)
+}
+
+/// A new id `<prefix>-<base36 time>` not yet used as a folder (or temp folder) in `dir`.
+pub fn new_prefixed_id(dir: &Path, prefix: &str, temp_prefix: &str) -> String {
+    let base = format!("{prefix}-{}", to_base36(now_ms().max(0) as u64));
+    let taken = |id: &str| dir.join(id).exists() || dir.join(format!("{temp_prefix}{id}")).exists();
     if !taken(&base) {
         return base;
     }
@@ -92,11 +99,11 @@ pub fn write_manifest(dir: &Path, manifest: &DatasetManifest) -> AppResult<()> {
     Ok(())
 }
 
-/// Removes leftovers of imports that were interrupted by a crash.
-pub fn remove_stale_temp_dirs(datasets_dir: &Path) {
-    let Ok(entries) = std::fs::read_dir(datasets_dir) else { return };
+/// Removes leftovers of imports or runs that were interrupted by a crash.
+pub fn remove_stale_temp_dirs(dir: &Path, temp_prefix: &str) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
-        if entry.file_name().to_string_lossy().starts_with(TEMP_PREFIX)
+        if entry.file_name().to_string_lossy().starts_with(temp_prefix)
             && let Err(e) = std::fs::remove_dir_all(entry.path()) {
                 log::warn!("could not remove {}: {e}", entry.path().display());
             }
@@ -112,9 +119,14 @@ pub struct TempDataset {
 
 impl TempDataset {
     pub fn create(datasets_dir: &Path, id: &str) -> AppResult<Self> {
-        let temp_dir = datasets_dir.join(format!("{TEMP_PREFIX}{id}"));
+        Self::create_with_prefix(datasets_dir, id, TEMP_PREFIX)
+    }
+
+    /// A folder `<dir>/<temp_prefix><id>` that becomes `<dir>/<id>` on commit.
+    pub fn create_with_prefix(dir: &Path, id: &str, temp_prefix: &str) -> AppResult<Self> {
+        let temp_dir = dir.join(format!("{temp_prefix}{id}"));
         std::fs::create_dir_all(&temp_dir)?;
-        Ok(Self { temp_dir, final_dir: datasets_dir.join(id), committed: false })
+        Ok(Self { temp_dir, final_dir: dir.join(id), committed: false })
     }
 
     pub fn path(&self) -> &Path {
