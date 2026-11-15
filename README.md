@@ -56,3 +56,7 @@ See [docs/](docs/README.md):
 - [Data pipeline](docs/pipeline.md): every stage, step and file format in detail
 - [Development](docs/development.md): setup and conventions
 - [Roadmap](docs/roadmap.md)
+
+## License
+
+[MIT](LICENSE)

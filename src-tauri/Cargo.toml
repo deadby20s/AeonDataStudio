@@ -3,6 +3,7 @@ name = "aeondatastudio"
 version = "0.1.0"
 description = "Personal data studio for preparing AI pretraining data"
 edition = "2024"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
