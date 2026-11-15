@@ -3,7 +3,8 @@
 
 use aeon_shared::{
     AppInfo, DatasetManifest, DatasetSummary, Document, DocumentPage, ImportRequest, JOB_UPDATE_EVENT, JobId,
-    ChangedPage, JobStatus, PipelinePreview, PipelineSpec, PipelineSummary, RemovedDoc, RemovedPage, RunReport, RunSummary,
+    ChangedPage, ExportRequest, ExportSummary, ImportFormat, ImportPreview, JobStatus, MixRequest, PipelinePreview,
+    TextMode, PipelineSpec, PipelineSummary, RemovedDoc, RemovedPage, RunReport, RunSummary,
     WorkspaceInfo,
 };
 use serde::de::DeserializeOwned;
@@ -281,6 +282,63 @@ pub async fn sample_removed(run_id: &str, step_index: u64, rule: &str, count: u6
 
 pub async fn browse_changed(run_id: &str, step_index: Option<u64>, start: u64, limit: u64) -> ApiResult<ChangedPage> {
     call("browse_changed", &BrowseChangedArgs { run_id, step_index, start, limit }).await
+}
+
+#[derive(Serialize)]
+struct ExportArgs<'a> {
+    request: &'a ExportRequest,
+}
+
+#[derive(Serialize)]
+struct FolderArg<'a> {
+    folder: &'a str,
+}
+
+#[derive(Serialize)]
+struct MixArgs<'a> {
+    request: &'a MixRequest,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreviewImportArgs<'a> {
+    paths: &'a [String],
+    format: ImportFormat,
+    text_field: &'a str,
+    text_mode: TextMode,
+}
+
+pub async fn start_export(request: &ExportRequest) -> ApiResult<JobId> {
+    call("start_export", &ExportArgs { request }).await
+}
+
+pub async fn list_exports() -> ApiResult<Vec<ExportSummary>> {
+    call("list_exports", &NoArgs {}).await
+}
+
+pub async fn delete_export(folder: &str) -> ApiResult<()> {
+    call("delete_export", &FolderArg { folder }).await
+}
+
+pub async fn open_export_folder(folder: &str) -> ApiResult<()> {
+    call("open_export_folder", &FolderArg { folder }).await
+}
+
+pub async fn pick_tokenizer_file() -> ApiResult<Option<String>> {
+    call("pick_tokenizer_file", &NoArgs {}).await
+}
+
+pub async fn start_mix(request: &MixRequest) -> ApiResult<JobId> {
+    call("start_mix", &MixArgs { request }).await
+}
+
+pub async fn preview_import(
+    paths: &[String],
+    format: ImportFormat,
+    text_field: &str,
+    text_mode: TextMode,
+) -> ApiResult<ImportPreview> {
+    call("preview_import", &PreviewImportArgs { paths, format, text_field, text_mode }).await
 }
 
 pub async fn list_jobs() -> ApiResult<Vec<JobStatus>> {

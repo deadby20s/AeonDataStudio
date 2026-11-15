@@ -1,6 +1,6 @@
 # Architecture
 
-## Current state (after M3)
+## Current state (0.1 alpha, after M4)
 
 The Cargo workspace has three crates:
 
@@ -58,8 +58,12 @@ The Cargo workspace has three crates:
   and `STEP_KINDS`, a description of every step's settings that the editor uses to build
   its forms. Adding a step type means adding a variant, its `STEP_KINDS` entry, and its
   `Step` impl; no UI code.
-- Jobs can finish with a link (`JobLink::Dataset` / `JobLink::Run`) shown as an "Open" button.
-- Frontend: `inspector.rs` (removed-by-reason cards, duplicate pairs, before/after) and
+- Jobs can finish with a link (`JobLink::Dataset` / `Run` / `Export`) shown as an "Open" button.
+- `export/`: `mod.rs` writes JSONL/Parquet/token shards into `exports/<name>/` with manifest and
+  checksums; `tokenize.rs` wraps tiktoken and Hugging Face tokenizers.
+- `mix.rs`: weighted, seeded mixing with an external bucket shuffle.
+- `import::preview` samples the first file's fields for the import form.
+- Frontend: `exports.rs` (Exports page, export form, mix form); `inspector.rs` (removed-by-reason cards, duplicate pairs, before/after) and
   `diff.rs` (Myers word-level diff, whitespace split per character).
 
 **Commands:** `get_app_info`, `pick_folder`, `open_workspace`, `close_workspace`,
@@ -158,7 +162,7 @@ workspace/
 │       ├── report.json      # per-step counts, rules, timing, removed/kept parts
 │       ├── removed/         # dropped docs with step + rule + detail (+ duplicated row)
 │       └── kept/            # per output row: input row + which steps changed it
-└── exports/
+└── exports/<name>/          # data-* or tokens-* files, manifest.json, SHA256SUMS
 ```
 
 Parquet is the planned internal format: columnar, compressed, fast to page through for the
@@ -195,6 +199,11 @@ Record non-obvious decisions here, newest first.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-11-15 | CSP `connect-src` includes `'self'`; Trunk's `wasm-opt` is off and the UI crate uses `opt-level = "z"` | The frontend fetches its own `.wasm`, which a CSP without `'self'` blocks (only visible in release builds; dev doesn't enforce the CSP). `wasm-opt` is downloaded at build time and failed offline |
+| 2026-11-15 | Export shard sizes and reported sizes use MiB | One unit everywhere (the UI's byte formatting is binary) |
+| 2026-11-15 | `tokenizers` 0.22 with `fancy-regex`, not the 1.0 release candidate or Oniguruma | Stable release; pure-Rust regex avoids building a C library on Windows |
+| 2026-11-15 | `serde_json` with `preserve_order` | Metadata keeps the source's key order, and the import preview lists fields in file order |
+| 2026-11-15 | Not adopting DuckDB for the alpha | The per-document steps are Rust either way and storage is already Parquet, which DuckDB reads natively; it fits later as an optional SQL explorer, without migrating data |
 | 2026-11-12 | Dedup keeps the lowest input row and runs as extra passes with on-disk band files sorted one band at a time | Deterministic "keep first" semantics and bounded memory (16 bytes per document per band in RAM for one band), at the cost of one extra read of the input per dedup step |
 | 2026-11-12 | Near-dup uses LSH band collisions without verifying the Jaccard estimate | Storing full signatures would cost ~1 KB per document; band collisions alone give a well-understood detection curve (shown in the UI) |
 | 2026-11-12 | Runs record a kept index (input row + changed-steps bitmask per output row) | Enables before/after in the Inspector for 16 bytes per document, without storing text twice |

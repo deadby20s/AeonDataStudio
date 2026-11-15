@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use aeon_shared::{
-    AppInfo, ChangedPage, DatasetManifest, DatasetSummary, Document, DocumentPage, ImportRequest, JobId, JobKind,
+    AppInfo, ChangedPage, DatasetManifest, ExportRequest, ExportSummary, ImportFormat, ImportPreview, MixRequest,
+    TextMode, DatasetSummary, Document, DocumentPage, ImportRequest, JobId, JobKind,
     JobStatus,
     PipelinePreview, PipelineSpec, PipelineSummary, RemovedDoc, RemovedPage, RunReport, RunSummary, WorkspaceInfo,
 };
@@ -14,7 +15,7 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::dataset::{self, DatasetReader};
 use crate::error::{AppError, AppResult};
-use crate::{import, jobs, pipeline};
+use crate::{export, import, jobs, mix, pipeline};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -338,4 +339,82 @@ pub async fn browse_changed(
         pipeline::browse_changed(&ws.run_dir(&run_id)?, &report, step_index, start, limit)
     })
     .await
+}
+
+// ---------------------------------------------------------------------------------------------
+// Export, mixing, import preview
+// ---------------------------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn start_export(request: ExportRequest, app: AppHandle, state: State<'_, AppState>) -> AppResult<JobId> {
+    export::validate(&request)?;
+    let ws = state.workspace()?;
+    ws.dataset_dir(&request.dataset_id)?;
+    let version = app.package_info().version.to_string();
+    let title = format!("Export \"{}\"", request.name.trim());
+    state.jobs.spawn(JobKind::Export, title, move |ctx| export::run(ctx, ws, request, version))
+}
+
+#[tauri::command]
+pub async fn list_exports(state: State<'_, AppState>) -> AppResult<Vec<ExportSummary>> {
+    let ws = state.workspace()?;
+    blocking(move || export::list(&ws)).await
+}
+
+#[tauri::command]
+pub async fn delete_export(folder: String, state: State<'_, AppState>) -> AppResult<()> {
+    let ws = state.workspace()?;
+    blocking(move || export::delete(&ws, &folder)).await
+}
+
+/// Opens an export folder in the system file manager.
+#[tauri::command]
+pub fn open_export_folder(folder: String, app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let ws = state.workspace()?;
+    let dir = export::export_dir(&ws, &folder)?;
+    if !dir.is_dir() {
+        return Err(AppError::InvalidInput(format!("exports/{folder} does not exist")));
+    }
+    app.opener()
+        .open_path(dir.display().to_string(), None::<&str>)
+        .map_err(|e| AppError::Internal(format!("Could not open the folder: {e}")))
+}
+
+#[tauri::command]
+pub async fn pick_tokenizer_file(app: AppHandle) -> AppResult<Option<String>> {
+    let picked = blocking(move || {
+        Ok(app
+            .dialog()
+            .file()
+            .set_title("Choose a Hugging Face tokenizer.json")
+            .add_filter("Tokenizer", &["json"])
+            .blocking_pick_file())
+    })
+    .await?;
+    picked
+        .map(|p| p.into_path().map(|p| p.display().to_string()).map_err(|e| AppError::InvalidInput(e.to_string())))
+        .transpose()
+}
+
+#[tauri::command]
+pub fn start_mix(request: MixRequest, state: State<'_, AppState>) -> AppResult<JobId> {
+    mix::validate(&request)?;
+    let ws = state.workspace()?;
+    for s in &request.sources {
+        ws.dataset_dir(&s.dataset_id)?;
+    }
+    let title = format!("Mix \"{}\"", request.name.trim());
+    state.jobs.spawn(JobKind::Mix, title, move |ctx| mix::run(ctx, ws, request))
+}
+
+/// Reads the first records of the first file, to show its fields before importing.
+#[tauri::command]
+pub async fn preview_import(
+    paths: Vec<String>,
+    format: ImportFormat,
+    text_field: String,
+    text_mode: TextMode,
+) -> AppResult<ImportPreview> {
+    blocking(move || import::preview(&paths, format, &text_field, text_mode)).await
 }

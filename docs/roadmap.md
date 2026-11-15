@@ -35,9 +35,21 @@ Milestones are ordered; each one should leave the app usable.
       candidates; inspecting a dataset without a run.
 
 ## M4: Export
-- [ ] JSONL and Parquet export with manifests and checksums.
-- [ ] Tokenization (Hugging Face tokenizer / tiktoken) and binary token shards.
-- [ ] Dataset mixing with weights and seeded shuffle.
+- [x] JSONL and Parquet export with manifests and checksums.
+- [x] Tokenization (Hugging Face tokenizer / tiktoken) and binary token shards.
+- [x] Dataset mixing with weights and seeded shuffle.
+- [x] Import preview: fields, suggested text/id field, first documents.
+
+## 0.1 alpha
+- [x] App icon, content security policy, release build and installers.
+- [x] User guide and changelog.
+
+## After the alpha
+- SQL explorer with DuckDB over datasets, runs and removed logs (Parquet is read natively, so
+  no migration): ad-hoc queries, filtering by metadata, distributions of any field.
+- Export to a folder outside the workspace; per-source token counts.
+- Search index for large datasets.
+- Cancel button for previews.
 
 ## Later
 - PII masking.

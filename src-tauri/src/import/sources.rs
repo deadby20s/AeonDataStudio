@@ -52,6 +52,8 @@ pub struct ReadOptions<'a> {
     pub text_field: &'a str,
     pub id_field: Option<&'a str>,
     pub text_mode: TextMode,
+    /// For previews: a missing text column is not an error; every column goes to `meta`.
+    pub allow_missing_text: bool,
 }
 
 /// Splits a file name into its data format and compression, looking through `.gz` / `.zst`.
@@ -326,7 +328,11 @@ fn read_csv(
         .from_reader(reader);
     let headers: Vec<String> =
         csv.byte_headers()?.iter().map(|h| String::from_utf8_lossy(h).trim().to_string()).collect();
-    let text_idx = headers.iter().position(|h| h == opts.text_field).ok_or_else(|| missing_column(opts.text_field, &headers))?;
+    let text_idx = match headers.iter().position(|h| h == opts.text_field) {
+        Some(i) => Some(i),
+        None if opts.allow_missing_text => None,
+        None => return Err(missing_column(opts.text_field, &headers)),
+    };
     let id_idx = opts.id_field.and_then(|f| headers.iter().position(|h| h == f));
 
     let mut record = csv::ByteRecord::new();
@@ -346,12 +352,12 @@ fn read_csv(
         let field = |i: usize| record.get(i).map(|b| String::from_utf8_lossy(b).into_owned());
         let mut meta = Map::new();
         for (i, name) in headers.iter().enumerate() {
-            if i != text_idx && Some(i) != id_idx
+            if Some(i) != text_idx && Some(i) != id_idx
                 && let Some(v) = field(i) {
                     meta.insert(name.clone(), Value::String(v));
                 }
         }
-        let rec = RawRecord { id: id_idx.and_then(field), text: field(text_idx), meta };
+        let rec = RawRecord { id: id_idx.and_then(field), text: text_idx.and_then(field), meta };
         if !emit(Item::Record(rec))? {
             return Ok(());
         }
@@ -361,15 +367,21 @@ fn read_csv(
 fn read_parquet(path: &Path, opts: &ReadOptions<'_>, emit: &mut dyn FnMut(Item) -> AppResult<bool>) -> AppResult<()> {
     let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(path)?)?;
     let names: Vec<String> = builder.schema().fields().iter().map(|f| f.name().clone()).collect();
-    let text_idx = names.iter().position(|n| n == opts.text_field).ok_or_else(|| missing_column(opts.text_field, &names))?;
+    let text_idx = match names.iter().position(|n| n == opts.text_field) {
+        Some(i) => Some(i),
+        None if opts.allow_missing_text => None,
+        None => return Err(missing_column(opts.text_field, &names)),
+    };
     let id_idx = opts.id_field.and_then(|f| names.iter().position(|n| n == f));
-    let meta_idx: Vec<usize> = (0..names.len()).filter(|&i| i != text_idx && Some(i) != id_idx).collect();
+    let meta_idx: Vec<usize> = (0..names.len()).filter(|&i| Some(i) != text_idx && Some(i) != id_idx).collect();
 
     for batch in builder.with_batch_size(2048).build()? {
         let batch = batch?;
-        let text = cast(batch.column(text_idx), &DataType::Utf8)
+        let text = text_idx
+            .map(|i| cast(batch.column(i), &DataType::Utf8))
+            .transpose()
             .map_err(|e| AppError::InvalidInput(format!("column {} can't be read as text: {e}", opts.text_field)))?;
-        let text = text.as_string::<i32>();
+        let text = text.as_ref().map(|t| t.as_string::<i32>());
         let ids = id_idx.map(|i| cast(batch.column(i), &DataType::Utf8)).transpose()?;
         let ids = ids.as_ref().map(|a| a.as_string::<i32>());
 
@@ -391,7 +403,7 @@ fn read_parquet(path: &Path, opts: &ReadOptions<'_>, emit: &mut dyn FnMut(Item) 
         for (i, meta) in metas.into_iter().enumerate() {
             let rec = RawRecord {
                 id: ids.and_then(|a| a.is_valid(i).then(|| a.value(i).to_string())),
-                text: text.is_valid(i).then(|| text.value(i).to_string()),
+                text: text.and_then(|t| t.is_valid(i).then(|| t.value(i).to_string())),
                 meta,
             };
             if !emit(Item::Record(rec))? {
@@ -415,7 +427,7 @@ mod tests {
     use std::io::Write;
 
     fn opts() -> ReadOptions<'static> {
-        ReadOptions { text_field: "text", id_field: Some("id"), text_mode: TextMode::PerLine }
+        ReadOptions { text_field: "text", id_field: Some("id"), text_mode: TextMode::PerLine, allow_missing_text: false }
     }
 
     fn read_all(path: &Path, opts: &ReadOptions<'_>) -> AppResult<Vec<Item>> {

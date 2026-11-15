@@ -2,8 +2,10 @@ mod catalog;
 mod commands;
 mod dataset;
 mod error;
+mod export;
 mod import;
 mod jobs;
+mod mix;
 mod pipeline;
 mod state;
 mod workspace;
@@ -62,6 +64,13 @@ pub fn run() {
             commands::delete_run,
             commands::sample_removed,
             commands::browse_changed,
+            commands::start_export,
+            commands::list_exports,
+            commands::delete_export,
+            commands::open_export_folder,
+            commands::pick_tokenizer_file,
+            commands::start_mix,
+            commands::preview_import,
             commands::list_jobs,
             commands::cancel_job,
             commands::clear_finished_jobs,

@@ -32,6 +32,7 @@ pub struct DatasetWriter {
     rows: usize,
     bytes: usize,
     batch_rows: usize,
+    batch_bytes: usize,
     stats: StatsBuilder,
 }
 
@@ -46,8 +47,24 @@ impl DatasetWriter {
             rows: 0,
             bytes: 0,
             batch_rows: BATCH_ROWS,
+            batch_bytes: BATCH_BYTES,
             stats: StatsBuilder::default(),
         })
+    }
+
+    /// Flush after this many buffered text bytes (smaller saves memory with many writers open).
+    pub fn with_batch_bytes(mut self, bytes: usize) -> Self {
+        self.batch_bytes = bytes.max(1);
+        self
+    }
+
+    /// Writer for an export: files `<prefix>-00000.parquet`, ..., each about `part_bytes`
+    /// of text; with `include_meta` false the `meta` column is written as `{}`.
+    pub fn for_export(dir: &Path, prefix: &'static str, part_bytes: u64) -> AppResult<Self> {
+        let mut w = Self::new(dir)?;
+        w.parts = PartedWriter::new(dir, prefix, schema())?;
+        w.parts.set_part_bytes(part_bytes);
+        Ok(w)
     }
 
     /// Small parts, so tests can cover reads that cross part boundaries.
@@ -66,7 +83,7 @@ impl DatasetWriter {
         self.meta.append_value(doc.meta_json);
         self.rows += 1;
         self.bytes += doc.text.len();
-        if self.rows >= self.batch_rows || self.bytes >= BATCH_BYTES {
+        if self.rows >= self.batch_rows || self.bytes >= self.batch_bytes {
             self.flush()?;
         }
         Ok(())

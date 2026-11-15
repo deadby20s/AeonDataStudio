@@ -81,6 +81,7 @@ impl Workspace {
         }
         crate::dataset::remove_stale_temp_dirs(&root.join("datasets"), crate::dataset::TEMP_PREFIX);
         crate::dataset::remove_stale_temp_dirs(&root.join("runs"), crate::pipeline::RUN_TEMP_PREFIX);
+        crate::export::remove_stale(&root.join("exports"));
         let catalog = Catalog::open(&root.join(CATALOG_FILE))?;
         catalog.fail_interrupted_runs(now_ms())?;
 
@@ -105,6 +106,10 @@ impl Workspace {
 
     pub fn runs_dir(&self) -> PathBuf {
         self.root.join("runs")
+    }
+
+    pub fn exports_dir(&self) -> PathBuf {
+        self.root.join("exports")
     }
 
     pub fn pipelines_dir(&self) -> PathBuf {

@@ -6,6 +6,7 @@ use crate::api;
 use crate::datasets::DatasetsPage;
 use crate::pages::{JobsPage, SettingsPage, WelcomePage};
 use crate::pipelines::{Draft, PipelinesPage};
+use crate::exports::ExportsPage;
 use crate::inspector::InspectorPage;
 use crate::runs::RunsPage;
 
@@ -15,13 +16,21 @@ pub enum Page {
     Pipelines,
     Runs,
     Inspector,
+    Exports,
     Jobs,
     Settings,
 }
 
 impl Page {
-    const NAV: [Page; 6] =
-        [Page::Datasets, Page::Pipelines, Page::Runs, Page::Inspector, Page::Jobs, Page::Settings];
+    const NAV: [Page; 7] = [
+        Page::Datasets,
+        Page::Pipelines,
+        Page::Runs,
+        Page::Inspector,
+        Page::Exports,
+        Page::Jobs,
+        Page::Settings,
+    ];
 
     fn label(self) -> &'static str {
         match self {
@@ -29,6 +38,7 @@ impl Page {
             Page::Pipelines => "Pipelines",
             Page::Runs => "Runs",
             Page::Inspector => "Inspector",
+            Page::Exports => "Exports",
             Page::Jobs => "Jobs",
             Page::Settings => "Settings",
         }
@@ -194,7 +204,7 @@ fn Shell() -> impl IntoView {
                         })
                         .collect_view()}
                 </ul>
-                <div class="sidebar-footer muted small">"v" {move || ctx.version.get()}</div>
+                <div class="sidebar-footer muted small">"v" {move || ctx.version.get()} " alpha"</div>
             </nav>
             <main class="content">
                 {move || match ctx.page.get() {
@@ -202,6 +212,7 @@ fn Shell() -> impl IntoView {
                     Page::Pipelines => view! { <PipelinesPage/> }.into_any(),
                     Page::Runs => view! { <RunsPage/> }.into_any(),
                     Page::Inspector => view! { <InspectorPage/> }.into_any(),
+                    Page::Exports => view! { <ExportsPage/> }.into_any(),
                     Page::Jobs => view! { <JobsPage/> }.into_any(),
                     Page::Settings => view! { <SettingsPage/> }.into_any(),
                 }}

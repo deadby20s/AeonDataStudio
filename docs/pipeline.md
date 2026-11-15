@@ -121,26 +121,51 @@ finds more.
 Remove documents that overlap with evaluation benchmarks, by n-gram overlap against
 benchmark files the user provides. Keeps evaluation scores honest.
 
-## 6. Mix
+## 6. Mix *(built in M4)*
 
-Combine several clean datasets into one training mix with per-source weights (upsample or
-downsample), and shuffle with a fixed seed.
+Combine datasets into a new one with per-dataset **weights**: weight *w* includes each
+document ⌊w⌋ times plus once more with probability *w* − ⌊w⌋ (0.5 = a random half, 2 = twice).
+The choice is a seeded hash of (dataset, row), so the same request gives the same mix. Extra
+copies get ids like `p17#2`; sources are prefixed with the dataset name.
 
-## 7. Tokenize
+**Shuffle** is a two-pass external shuffle: documents are scattered into random temporary
+buckets of about 64 MB (at most 512), then each bucket is shuffled in memory and appended.
+Memory stays bounded and the order is uniformly random. The mixed dataset's manifest records
+the request and each source's documents in/out and character share.
 
-Optional. Tokenize with a chosen tokenizer (a Hugging Face `tokenizer.json` or a tiktoken
-encoding), append an end-of-document token, and report token counts per source.
+## 7. Tokenize *(built in M4, as an export format)*
 
-## 8. Export
+Tokenizers: built-in tiktoken encodings (`o200k_base`, `cl100k_base`, `p50k_base`, `r50k_base`)
+or a Hugging Face `tokenizer.json` (loaded with the `tokenizers` crate, pure-Rust regex).
+Text is encoded without special tokens (a literal `<|endoftext|>` in a document stays text);
+optionally the end-of-text id is appended after each document. For Hugging Face tokenizers the
+end-of-text token is the first of `<|endoftext|>`, `</s>`, `<|end_of_text|>`, `<eos>`,
+`<|eot_id|>`, `[SEP]` that exists.
 
-| Format | Use |
-|---|---|
-| JSONL (optionally `.zst`) | General purpose, easy to read |
-| Parquet | Hugging Face `datasets`, pandas, polars |
-| Binary token shards (`uint16`/`uint32` + index) | Direct loading by a training loop |
+## 8. Export *(built in M4)*
 
-Every export includes a `manifest.json`: source datasets, pipeline recipe, tool version,
-tokenizer, document and token counts, and file checksums.
+| Format | Files | Use |
+|---|---|---|
+| JSONL (none / gzip / zstd) | `data-NNNNN.jsonl[.gz/.zst]` | General purpose; `{"id","text","source","meta"?}` per line |
+| Parquet | `data-NNNNN.parquet` | Hugging Face `datasets`, pandas, polars |
+| Token shards | `tokens-NNNNN.bin` + `tokens-NNNNN.idx` | Direct loading by a training loop |
+
+Token shards: `.bin` holds token ids as little-endian `uint16` (vocabulary ≤ 65,536) or
+`uint32`; `.idx` holds `docs + 1` little-endian `uint64` offsets in tokens, so document *i* is
+`tokens[idx[i]:idx[i+1]]`. Shards are split by the requested size (MiB of output; for
+JSONL/Parquet, of uncompressed text).
+
+Every export folder has `manifest.json` (source dataset and the run that produced it, request,
+tokenizer name/vocabulary/dtype/end-of-text id, document and token counts, each file's size and
+SHA-256, app version) and `SHA256SUMS` in `sha256sum` format. Exports are written to
+`exports/.exporting-<name>` and renamed when complete.
+
+Measured on 26,505 documents (34 MB of text, debug build): JSONL+zstd 1.0 s, Parquet 1.0 s,
+o200k token shards 2.5 s (10.2 M tokens).
+
+**End to end in a release build** (300k documents, 172 M characters): the full 11-step template
+including exact and near dedup (3 passes) took 13.4 s; exporting the 264,903 kept documents as
+o200k token shards (35 M tokens) took 1.5 s.
 
 ## Pipeline recipe format *(built in M2)*
 

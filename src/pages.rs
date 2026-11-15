@@ -235,6 +235,7 @@ pub fn JobRow(id: JobId, error: RwSignal<Option<String>>) -> impl IntoView {
                             let label = match &link {
                                 JobLink::Dataset(_) => "Open dataset",
                                 JobLink::Run(_) => "Open run",
+                                JobLink::Export(_) => "Open exports",
                             };
                             view! {
                                 <button
@@ -248,6 +249,7 @@ pub fn JobRow(id: JobId, error: RwSignal<Option<String>>) -> impl IntoView {
                                             ctx.selected_run.set(Some(id));
                                             ctx.page.set(Page::Runs);
                                         }
+                                        JobLink::Export(_) => ctx.page.set(Page::Exports),
                                     }
                                 >
                                     {label}

@@ -7,7 +7,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use aeon_shared::{
-    DatasetManifest, DatasetSummary, ImportFormat, ImportReport, ImportRequest, SkipCounts, SourceFileReport,
+    DatasetManifest, DatasetSummary, FieldInfo, ImportFormat, ImportPreview, ImportRequest, ImportReport, SkipCounts,
+    SourceFileReport, TextMode,
 };
 
 use crate::dataset::{self, DatasetWriter, NewDoc, TempDataset};
@@ -21,6 +22,102 @@ use sources::{Item, ReadOptions, read_file};
 const MAX_SAMPLE_ERRORS: usize = 10;
 /// Progress is reported (and cancellation checked) every this many records.
 const PROGRESS_EVERY: u64 = 1000;
+
+/// Records read for a preview.
+const PREVIEW_RECORDS: usize = 50;
+const PREVIEW_TEXTS: usize = 5;
+const PREVIEW_CHARS: usize = 300;
+/// A field name no real file has, so previews keep every field in `meta`.
+const NO_FIELD: &str = "\u{0}";
+
+fn clip(s: &str, n: usize) -> String {
+    let mut out: String = s.chars().take(n).collect();
+    if s.chars().nth(n).is_some() {
+        out.push('…');
+    }
+    out
+}
+
+/// Samples the first file of an import: its fields (with a guess at the text field) and the
+/// first documents as they'd be imported with `text_field`.
+pub fn preview(paths: &[String], format: ImportFormat, text_field: &str, text_mode: TextMode) -> AppResult<ImportPreview> {
+    if paths.is_empty() {
+        return Err(AppError::InvalidInput("Add a file or folder first".into()));
+    }
+    let (files, ignored_files) = collect_inputs(paths, format)?;
+    let first = files.first().ok_or_else(|| AppError::InvalidInput("No importable files found".into()))?;
+    let opts = ReadOptions { text_field: NO_FIELD, id_field: None, text_mode, allow_missing_text: true };
+    let mut records = Vec::new();
+    let mut parse_errors = 0u64;
+    read_file(first, &opts, Arc::new(AtomicU64::new(0)), &mut |item| {
+        match item {
+            Item::Record(r) => records.push(r),
+            Item::ParseError(_) => parse_errors += 1,
+        }
+        Ok(records.len() + (parse_errors as usize) < PREVIEW_RECORDS)
+    })?;
+
+    let mut fields: Vec<FieldInfo> = Vec::new();
+    
+    let sample_texts: Vec<String> = if first.format == ImportFormat::Text {
+        records.iter().filter_map(|r| r.text.as_deref()).take(PREVIEW_TEXTS).map(|t| clip(t, PREVIEW_CHARS)).collect()
+    } else {
+        let mut chars: Vec<u64> = Vec::new();
+        for r in &records {
+            for (k, v) in &r.meta {
+                let i = match fields.iter().position(|f| &f.name == k) {
+                    Some(i) => i,
+                    None => {
+                        fields.push(FieldInfo { name: k.clone(), text_count: 0, mean_chars: 0.0, example: String::new() });
+                        chars.push(0);
+                        fields.len() - 1
+                    }
+                };
+                let f = &mut fields[i];
+                if let serde_json::Value::String(s) = v {
+                    f.text_count += 1;
+                    chars[i] += s.chars().count() as u64;
+                    if f.example.is_empty() && !s.trim().is_empty() {
+                        f.example = clip(s.trim(), 120);
+                    }
+                } else if f.example.is_empty() && !v.is_null() {
+                    f.example = clip(&v.to_string(), 120);
+                }
+            }
+        }
+        for (f, c) in fields.iter_mut().zip(&chars) {
+            f.mean_chars = if f.text_count == 0 { 0.0 } else { *c as f64 / f.text_count as f64 };
+        }
+        records
+            .iter()
+            .filter_map(|r| r.meta.get(text_field).and_then(|v| v.as_str()))
+            .take(PREVIEW_TEXTS)
+            .map(|t| clip(t, PREVIEW_CHARS))
+            .collect()
+    };
+    let half = (records.len() as u64).div_ceil(2).max(1);
+    let suggested_text_field = fields
+        .iter()
+        .filter(|f| f.text_count >= half)
+        .max_by(|a, b| a.mean_chars.total_cmp(&b.mean_chars))
+        .map(|f| f.name.clone());
+    let suggested_id_field = ["id", "doc_id", "document_id", "uuid", "_id", "url"]
+        .iter()
+        .find(|c| fields.iter().any(|f| f.name == **c))
+        .map(|c| c.to_string());
+    Ok(ImportPreview {
+        files: files.len() as u64,
+        ignored_files,
+        file: first.source.clone(),
+        format: first.format,
+        records_sampled: records.len() as u64,
+        parse_errors,
+        fields,
+        suggested_text_field,
+        suggested_id_field,
+        sample_texts,
+    })
+}
 
 /// Checks a request before a job is started, so obvious mistakes show up immediately.
 pub fn validate(req: &ImportRequest) -> AppResult<()> {
@@ -52,7 +149,7 @@ pub fn run(ctx: &mut JobCtx, ws: Arc<Workspace>, req: ImportRequest) -> AppResul
 
     let text_field = req.text_field.trim();
     let id_field = req.id_field.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let opts = ReadOptions { text_field, id_field, text_mode: req.text_mode };
+    let opts = ReadOptions { text_field, id_field, text_mode: req.text_mode, allow_missing_text: false };
     let bytes_read = Arc::new(AtomicU64::new(0));
     let mut skipped = SkipCounts { ignored_files, ..SkipCounts::default() };
     let mut sample_errors = Vec::new();
@@ -143,6 +240,7 @@ pub fn run(ctx: &mut JobCtx, ws: Arc<Workspace>, req: ImportRequest) -> AppResul
         stats,
         import: Some(ImportReport { request: req, files: reports, skipped, sample_errors }),
         produced_by: None,
+        mix: None,
     };
     dataset::write_manifest(temp.path(), &manifest)?;
     let final_dir = temp.commit()?;
@@ -171,9 +269,17 @@ pub fn summary_of(m: &DatasetManifest) -> DatasetSummary {
         doc_count: Some(m.stats.doc_count),
         char_count: Some(m.stats.char_count),
         byte_size: Some(m.byte_size()),
-        source_desc: m.import.as_ref().map(source_desc).or_else(|| {
-            m.produced_by.as_ref().map(|p| format!("{} on {}", p.pipeline_name, p.input_name))
-        }),
+        source_desc: m
+            .import
+            .as_ref()
+            .map(source_desc)
+            .or_else(|| m.produced_by.as_ref().map(|p| format!("{} on {}", p.pipeline_name, p.input_name)))
+            .or_else(|| {
+                m.mix.as_ref().map(|mix| {
+                    let names: Vec<&str> = mix.sources.iter().map(|s| s.dataset_name.as_str()).collect();
+                    format!("Mix of {}", names.join(", "))
+                })
+            }),
         parent_run_id: m.produced_by.as_ref().map(|p| p.run_id.clone()),
     }
 }
@@ -278,6 +384,33 @@ mod tests {
         assert!(status.message.unwrap().contains("without text field \"text\""));
         assert_eq!(ws.catalog().unwrap().dataset_count().unwrap(), 0);
         assert_eq!(std::fs::read_dir(ws.datasets_dir()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn preview_lists_fields_and_suggests_the_text_field() {
+        let src = tempfile::tempdir().unwrap();
+        let csv = src.path().join("forum.csv");
+        std::fs::write(&csv, "post_id,body,score\n1,\"A fairly long forum post about gardening.\",5\n2,Another post here,3\n").unwrap();
+        let p = preview(&[csv.display().to_string()], ImportFormat::Auto, "text", TextMode::WholeFile).unwrap();
+        assert_eq!(p.format, ImportFormat::Csv);
+        assert_eq!(p.fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), vec!["post_id", "body", "score"]);
+        assert_eq!(p.suggested_text_field.as_deref(), Some("body"));
+        assert!(p.sample_texts.is_empty(), "no field named text");
+        let p = preview(&[csv.display().to_string()], ImportFormat::Auto, "body", TextMode::WholeFile).unwrap();
+        assert_eq!(p.sample_texts[0], "A fairly long forum post about gardening.");
+
+        let jsonl = src.path().join("d.jsonl");
+        std::fs::write(&jsonl, "{\"id\":1,\"content\":\"hello there world\",\"n\":3}\nbad\n").unwrap();
+        let p = preview(&[jsonl.display().to_string()], ImportFormat::Auto, "content", TextMode::WholeFile).unwrap();
+        assert_eq!((p.records_sampled, p.parse_errors), (1, 1));
+        assert_eq!(p.suggested_text_field.as_deref(), Some("content"));
+        assert_eq!(p.suggested_id_field.as_deref(), Some("id"));
+        assert_eq!(p.fields.iter().find(|f| f.name == "n").unwrap().example, "3");
+
+        let txt = src.path().join("a.txt");
+        std::fs::write(&txt, "line one\nline two\n").unwrap();
+        let p = preview(&[txt.display().to_string()], ImportFormat::Auto, "text", TextMode::PerLine).unwrap();
+        assert_eq!(p.sample_texts, vec!["line one", "line two"]);
     }
 
     #[test]

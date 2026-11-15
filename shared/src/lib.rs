@@ -5,7 +5,9 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod export;
 pub mod pipeline;
+pub use export::*;
 pub use pipeline::*;
 
 /// Name of the Tauri event emitted whenever a job's status changes.
@@ -231,6 +233,9 @@ pub struct DatasetManifest {
     /// Present when the dataset was created by a pipeline run.
     #[serde(default)]
     pub produced_by: Option<ProducedBy>,
+    /// Present when the dataset was created by mixing other datasets.
+    #[serde(default)]
+    pub mix: Option<MixReport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -289,6 +294,7 @@ pub enum JobKind {
     Import,
     PipelineRun,
     Export,
+    Mix,
 }
 
 impl JobKind {
@@ -298,6 +304,7 @@ impl JobKind {
             JobKind::Import => "Import",
             JobKind::PipelineRun => "Pipeline run",
             JobKind::Export => "Export",
+            JobKind::Mix => "Mix",
         }
     }
 }
@@ -365,4 +372,6 @@ pub struct JobStatus {
 pub enum JobLink {
     Dataset(String),
     Run(String),
+    /// An export folder name inside the workspace's `exports/`.
+    Export(String),
 }

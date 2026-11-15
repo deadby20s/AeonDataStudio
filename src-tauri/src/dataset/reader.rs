@@ -195,6 +195,7 @@ mod tests {
             stats,
             import: None,
             produced_by: None,
+            mix: None,
         };
         write_manifest(tmp.path(), &manifest).unwrap();
         let dir = tmp.commit().unwrap();

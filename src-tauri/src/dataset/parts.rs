@@ -35,6 +35,7 @@ pub struct PartedWriter {
     current: Option<OpenPart>,
     parts: Vec<PartInfo>,
     part_rows: u64,
+    part_bytes: u64,
 }
 
 impl PartedWriter {
@@ -51,7 +52,14 @@ impl PartedWriter {
             current: None,
             parts: Vec::new(),
             part_rows: PART_ROWS,
+            part_bytes: PART_BYTES,
         })
+    }
+
+    /// Starts a new part after this many text bytes (exports use the requested shard size).
+    pub fn set_part_bytes(&mut self, bytes: u64) {
+        self.part_bytes = bytes.max(1);
+        self.part_rows = u64::MAX;
     }
 
     #[cfg(test)]
@@ -79,7 +87,7 @@ impl PartedWriter {
         part.writer.write(batch)?;
         part.rows += batch.num_rows() as u64;
         part.bytes += text_bytes;
-        if part.rows >= self.part_rows || part.bytes >= PART_BYTES {
+        if part.rows >= self.part_rows || part.bytes >= self.part_bytes {
             self.close_part()?;
         }
         Ok(())

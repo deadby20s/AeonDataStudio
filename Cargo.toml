@@ -27,3 +27,8 @@ opt-level = 3
 strip = true
 # No `panic = "abort"`: the backend relies on unwinding so a panicking background job is
 # reported as failed instead of taking down the whole app.
+
+# The WebAssembly frontend is optimized for size here instead of with Trunk's wasm-opt,
+# which would be downloaded during the build (and fails offline).
+[profile.release.package.aeondatastudio-ui]
+opt-level = "z"

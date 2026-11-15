@@ -257,6 +257,7 @@ fn execute(
             input_dataset_id: req.input_dataset_id.clone(),
             input_name: names.input_name.to_string(),
         }),
+        mix: None,
     };
     dataset::write_manifest(out_temp.path(), &manifest)?;
 

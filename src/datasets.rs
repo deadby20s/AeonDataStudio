@@ -3,8 +3,8 @@
 use std::collections::HashSet;
 
 use aeon_shared::{
-    DatasetManifest, DatasetSummary, Document, DocumentPage, HistogramBin, ImportFormat, ImportRequest, JobKind,
-    JobState, TextMode,
+    DatasetManifest, DatasetSummary, Document, DocumentPage, HistogramBin, ImportFormat, ImportPreview, ImportRequest,
+    JobKind, JobState, TextMode,
 };
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -12,6 +12,7 @@ use leptos::task::spawn_local;
 use crate::api;
 use crate::app::{Page, use_app};
 use crate::format;
+use crate::exports::{ExportForm, MixForm};
 use crate::pages::JobRow;
 
 const PAGE_SIZE: u64 = 25;
@@ -34,6 +35,7 @@ fn DatasetList() -> impl IntoView {
     let ctx = use_app();
     let datasets = RwSignal::new(None::<Result<Vec<DatasetSummary>, String>>);
     let show_import = RwSignal::new(false);
+    let show_mix = RwSignal::new(false);
     let dismissed = RwSignal::new(HashSet::<u64>::new());
     let error = RwSignal::new(None::<String>);
 
@@ -71,12 +73,31 @@ fn DatasetList() -> impl IntoView {
     view! {
         <header class="page-header">
             <h1>"Datasets"</h1>
-            <Show when=move || !show_import.get()>
-                <button class="primary" on:click=move |_| show_import.set(true)>
-                    "Import…"
-                </button>
-            </Show>
+            <div class="actions">
+                <Show when=move || {
+                    !show_mix.get() && matches!(datasets.get(), Some(Ok(ref l)) if !l.is_empty())
+                }>
+                    <button on:click=move |_| { show_import.set(false); show_mix.set(true); }>"Mix…"</button>
+                </Show>
+                <Show when=move || !show_import.get()>
+                    <button class="primary" on:click=move |_| { show_mix.set(false); show_import.set(true); }>
+                        "Import…"
+                    </button>
+                </Show>
+            </div>
         </header>
+
+        {move || {
+            show_mix
+                .get()
+                .then(|| {
+                    let list = match datasets.get_untracked() {
+                        Some(Ok(l)) => l,
+                        _ => Vec::new(),
+                    };
+                    view! { <MixForm datasets=list on_close=Callback::new(move |_| show_mix.set(false))/> }
+                })
+        }}
 
         <Show when=move || show_import.get()>
             <ImportForm on_close=Callback::new(move |_| show_import.set(false))/>
@@ -254,6 +275,34 @@ fn ImportForm(on_close: Callback<()>) -> impl IntoView {
     let uses_text_mode = move || matches!(format.get(), ImportFormat::Auto | ImportFormat::Text);
     let can_start = move || !busy.get() && !paths.with(Vec::is_empty) && !name.with(|n| n.trim().is_empty());
 
+    // Sample the first file whenever the sources or reading settings change.
+    let preview = RwSignal::new(None::<Result<ImportPreview, String>>);
+    let auto_note = RwSignal::new(None::<String>);
+    Effect::new(move |_| {
+        let ps = paths.get();
+        let (fmt, mode, field) = (format.get(), text_mode.get(), text_field.get());
+        if ps.is_empty() {
+            preview.set(None);
+            return;
+        }
+        spawn_local(async move {
+            let result = api::preview_import(&ps, fmt, field.trim(), mode).await.map_err(|e| e.to_string());
+            if let Ok(p) = &result {
+                let names: Vec<&str> = p.fields.iter().map(|f| f.name.as_str()).collect();
+                if !names.is_empty() && !names.contains(&field.trim())
+                    && let Some(suggested) = &p.suggested_text_field {
+                        auto_note.set(Some(format!("No field “{}” in {}; using “{suggested}”, the field with the longest text.", field.trim(), p.file)));
+                        text_field.set(suggested.clone());
+                    }
+                let id = id_field.get_untracked();
+                if !names.is_empty() && !id.trim().is_empty() && !names.contains(&id.trim()) {
+                    id_field.set(p.suggested_id_field.clone().unwrap_or_default());
+                }
+            }
+            preview.set(Some(result));
+        });
+    });
+
     let start = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
         let id = id_field.get_untracked();
@@ -427,6 +476,82 @@ fn ImportForm(on_close: Callback<()>) -> impl IntoView {
                 </Show>
             </div>
 
+            {move || auto_note.get().map(|n| view! { <p class="muted small">{n}</p> })}
+            {move || match preview.get() {
+                None => ().into_any(),
+                Some(Err(e)) => view! { <p class="error small">{e}</p> }.into_any(),
+                Some(Ok(p)) => {
+                    let current = text_field.get();
+                    let current_id = id_field.get();
+                    let missing = !p.fields.is_empty() && !p.fields.iter().any(|f| f.name == current.trim());
+                    view! {
+                        <div class="import-preview">
+                            <div class="small muted">
+                                {format!(
+                                    "{} file{} to import{} · sampled {} record{} of {} ({})",
+                                    p.files,
+                                    if p.files == 1 { "" } else { "s" },
+                                    if p.ignored_files > 0 { format!(", {} ignored", p.ignored_files) } else { String::new() },
+                                    p.records_sampled,
+                                    if p.records_sampled == 1 { "" } else { "s" },
+                                    p.file,
+                                    p.format.short(),
+                                )}
+                                {(p.parse_errors > 0).then(|| format!(" · {} unreadable line(s) in the sample", p.parse_errors))}
+                            </div>
+                            {missing.then(|| view! {
+                                <p class="error small">{format!("No field named “{}” in the sample. Pick the text field below.", current.trim())}</p>
+                            })}
+                            {(!p.fields.is_empty()).then(|| view! {
+                                <table class="table compact">
+                                    <thead>
+                                        <tr>
+                                            <th>"Field"</th>
+                                            <th>"Example"</th>
+                                            <th class="num">"Avg. length"</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {p.fields.into_iter().map(|f| {
+                                            let is_text = f.name == current.trim();
+                                            let is_id = f.name == current_id.trim();
+                                            let (n1, n2) = (f.name.clone(), f.name.clone());
+                                            view! {
+                                                <tr class:selected=is_text>
+                                                    <td class="mono">{f.name.clone()}</td>
+                                                    <td class="example-cell">{f.example}</td>
+                                                    <td class="num">{if f.text_count > 0 { format!("{:.0}", f.mean_chars) } else { "—".into() }}</td>
+                                                    <td class="num nowrap">
+                                                        {if is_text {
+                                                            view! { <span class="chip">"text"</span> }.into_any()
+                                                        } else {
+                                                            view! { <button type="button" class="small-button" on:click=move |_| { auto_note.set(None); text_field.set(n1.clone()); }>"Use as text"</button> }.into_any()
+                                                        }}
+                                                        " "
+                                                        {if is_id {
+                                                            view! { <span class="chip">"id"</span> }.into_any()
+                                                        } else {
+                                                            view! { <button type="button" class="small-button" on:click=move |_| id_field.set(n2.clone())>"Use as ID"</button> }.into_any()
+                                                        }}
+                                                    </td>
+                                                </tr>
+                                            }
+                                        }).collect_view()}
+                                    </tbody>
+                                </table>
+                            })}
+                            {(!p.sample_texts.is_empty()).then(|| view! {
+                                <div class="small-heading">"First documents"</div>
+                                <ol class="sample-docs">
+                                    {p.sample_texts.into_iter().map(|t| view! { <li class="doc-text">{t}</li> }).collect_view()}
+                                </ol>
+                            })}
+                        </div>
+                    }
+                        .into_any()
+                }
+            }}
             {move || error.get().map(|e| view! { <p class="error">{e}</p> })}
 
             <div class="row-buttons end">
@@ -447,6 +572,7 @@ fn DatasetDetail(id: String) -> impl IntoView {
     let manifest = RwSignal::new(None::<Result<DatasetManifest, String>>);
     let confirm_delete = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
+    let show_export = RwSignal::new(false);
 
     {
         let id = id.clone();
@@ -501,6 +627,7 @@ fn DatasetDetail(id: String) -> impl IntoView {
                             </p>
                         </div>
                         <div class="actions">
+                            <button class="primary" on:click=move |_| show_export.set(true)>"Export…"</button>
                             <Show
                                 when=move || confirm_delete.get()
                                 fallback=move || {
@@ -518,6 +645,53 @@ fn DatasetDetail(id: String) -> impl IntoView {
                         </div>
                     </header>
 
+                    {
+                        let (ds_id, ds_name) = (m.id.clone(), m.name.clone());
+                        move || {
+                            show_export.get().then(|| view! {
+                                <ExportForm
+                                    dataset_id=ds_id.clone()
+                                    dataset_name=ds_name.clone()
+                                    on_close=Callback::new(move |_| show_export.set(false))
+                                />
+                            })
+                        }
+                    }
+                    {m.mix.clone().map(|mix| view! {
+                        <details class="card" open>
+                            <summary>
+                                <h2 class="inline">"Mixed from"</h2>
+                                <span class="muted small">
+                                    {format!(" seed {}{}", mix.request.seed, if mix.request.shuffle { ", shuffled" } else { "" })}
+                                </span>
+                            </summary>
+                            <table class="table compact">
+                                <thead>
+                                    <tr>
+                                        <th>"Dataset"</th>
+                                        <th class="num">"Weight"</th>
+                                        <th class="num">"Documents in"</th>
+                                        <th class="num">"Documents out"</th>
+                                        <th class="num">"Share of characters"</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {
+                                        let total: u64 = mix.sources.iter().map(|s| s.chars_out).sum();
+                                        mix.sources.into_iter().map(|s| view! {
+                                            <tr>
+                                                <td>{s.dataset_name}</td>
+                                                <td class="num">{s.weight}</td>
+                                                <td class="num">{format::count(s.docs_in)}</td>
+                                                <td class="num">{format::count(s.docs_out)}</td>
+                                                <td class="num">{format::percent(s.chars_out, total)}</td>
+                                            </tr>
+                                        }).collect_view()
+                                    }
+                                </tbody>
+                            </table>
+                        </details>
+                    })}
                     {m.produced_by.clone().map(|p| {
                         let run_id = p.run_id.clone();
                         let input_id = p.input_dataset_id.clone();

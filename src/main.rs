@@ -2,6 +2,7 @@ mod api;
 mod app;
 mod datasets;
 mod diff;
+mod exports;
 mod format;
 mod inspector;
 mod pages;

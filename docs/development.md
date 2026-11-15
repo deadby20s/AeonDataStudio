@@ -33,6 +33,10 @@ restart.
 cargo tauri build
 ```
 
+Produces `target/release/bundle/msi/*.msi` and `target/release/bundle/nsis/*-setup.exe`.
+Always try the release build after changing the CSP in `tauri.conf.json`: dev mode does not
+enforce it.
+
 Runs `trunk build` into `dist/`, then builds and bundles the app (installers end up under
 `target/release/bundle/`).
 

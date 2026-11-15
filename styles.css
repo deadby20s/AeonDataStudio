@@ -321,6 +321,16 @@ ins.ins, span.ins { background: color-mix(in srgb, var(--ok) 25%, transparent); 
 .list-item:hover:not(:disabled) { background: var(--surface-2); }
 .list-item.active { background: var(--accent-soft); color: var(--accent); }
 
+/* Import preview, export, mix */
+.import-preview { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; background: var(--surface-2); }
+.import-preview .table { background: var(--surface); }
+.import-preview tr.selected td { background: var(--accent-soft); }
+.example-cell { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.nowrap { white-space: nowrap; }
+.sample-docs { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 4px; }
+.sample-docs .doc-text { padding: 2px 0; font-size: 12.5px; }
+.weight-input { width: 90px; text-align: right; }
+
 @media (max-width: 720px) {
   .changes { grid-template-columns: 1fr; }
   .reason-grid { grid-template-columns: 1fr; }
