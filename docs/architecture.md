@@ -8,7 +8,7 @@ The Cargo workspace has five crates:
 |---|---|---|
 | `aeondatastudio-ui` | `src/` | Leptos 0.8 (client-side rendering) compiled to WASM by Trunk |
 | `aeon-core` | `core/` | The engine, without UI: everything under "Backend" below, plus `ops.rs` (every operation as a method on `AppState`), `api.rs` (HTTP router and server), `mcp.rs` (MCP over stdio), `plugins.rs`, `llm.rs` |
-| `aeon-cli` | `cli/` | The `aeon` binary: CLI commands, `aeon serve`, `aeon mcp` |
+| `aeon-cli` | `cli/` | The `aeon` CLI as a library: CLI commands, `aeon serve`, `aeon mcp`. The binary is `src-tauri/src/bin/aeon.rs` |
 | `aeondatastudio` | `src-tauri/` | The Tauri app: native dialogs, updates, themes, the API switch, and thin commands over `aeon-core` |
 | `aeon-shared` | `shared/` | Types used by all of them: `AppInfo`, `WorkspaceInfo`, `DatasetSummary`, `JobStatus`, pipeline specs, and the `JOB_UPDATE_EVENT` name |
 
@@ -209,6 +209,8 @@ Record non-obvious decisions here, newest first.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-11-17 | `aeon` is a second binary of the app package, not of `aeon-cli` | Built separately, it got a different set of dependency features, so the release workflow recompiled every crate, DuckDB included (30 minutes on Windows). Built in the same Cargo run as the app, it only costs a link, and the installers include it |
+| 2026-11-17 | Release caches are saved only by build-only runs on `main` | GitHub lets tags read caches saved on the default branch, not caches saved on other tags or pull requests |
 | 2026-11-17 | The local API uses `tiny_http` on 127.0.0.1 with a bearer token, compared in constant time; no CORS headers | Small and synchronous like the engine. Loopback-only plus a token stops other users and web pages; without CORS headers, browsers can't read responses |
 | 2026-11-17 | MCP tools never delete | An assistant may misread a request; deleting stays a human action in the app, CLI or API |
 | 2026-11-17 | Plugins speak JSON lines over stdio, one process pool per step | Any language works, and nothing has to be linked into the app. Long-lived processes avoid paying model start-up per document |

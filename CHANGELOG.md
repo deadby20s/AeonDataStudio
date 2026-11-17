@@ -6,8 +6,8 @@ Use the studio from scripts, servers and AI assistants. Extend it with plugins a
 language models. Pick your colors.
 
 ### Added
-- **`aeon` command-line tool**: import, browse, preview, run, report, export and SQL without
-  the window. It works on the same workspaces as the app and takes pipelines by name, as a
+- **`aeon` command-line tool**, installed with the app: import, browse, preview, run, report,
+  export and SQL without the window. It works on the same workspaces as the app and takes pipelines by name, as a
   `.toml` file, or as `preset:<id>`.
 - **Local HTTP API**: JSON over HTTP on 127.0.0.1 with a bearer token, from `aeon serve` or
   from the app (Settings → Local API). Jobs started through the app's API show up on the Jobs

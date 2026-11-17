@@ -23,7 +23,8 @@ runs locally.
 - **Extend** with plugins (any program that reads JSON lines) and language-model steps
   through any OpenAI-compatible server, including ready-made data recipes (educational-quality
   scoring, rephrasing, synthetic Q&A).
-- **Automate** with the `aeon` CLI, a local HTTP API, and an MCP server for AI assistants.
+- **Automate** with the `aeon` CLI (installed with the app), a local HTTP API, and an MCP
+  server for AI assistants.
 
 Start with the **[user guide](docs/user-guide.md)**.
 

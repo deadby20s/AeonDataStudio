@@ -12,6 +12,10 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # No debug info in CI builds: it made the build cache over 6 GB, which pushed every other
+  # cache out of GitHub's 10 GB limit. Test failures still show file and line.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
 jobs:
   test:
@@ -36,6 +40,10 @@ jobs:
           components: clippy
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Only main saves caches (pull requests and tags can read them); caches saved by a
+          # pull request are only visible to that pull request.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # tauri-build expects the frontend output folder to exist.
       - name: Create dist folder

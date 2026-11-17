@@ -35,6 +35,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: scale
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Create dist folder
         run: mkdir -p dist
