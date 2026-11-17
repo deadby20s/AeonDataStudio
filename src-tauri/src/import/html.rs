@@ -17,6 +17,58 @@ const BLOCK: [&str; 26] = [
     "th", "blockquote", "pre", "dd", "dt", "dl", "figcaption", "address", "hr",
 ];
 
+/// Parts of class or id names that mark boilerplate blocks.
+const BOILERPLATE_HINTS: [&str; 24] = [
+    "nav", "navbar", "navigation", "menu", "breadcrumb", "breadcrumbs", "sidebar", "footer", "header", "cookie",
+    "cookies", "consent", "banner", "share", "sharing", "social", "related", "newsletter", "subscribe", "comments",
+    "comment", "advert", "ads", "popup",
+];
+
+/// Blocks checked for link density.
+const LINK_DENSITY_BLOCKS: [&str; 7] = ["ul", "ol", "div", "section", "table", "nav", "p"];
+
+/// A class or id like `site-nav`, `post_sidebar` or `cookieBanner` that names boilerplate.
+/// Matches whole name parts, so `shared-content` or `menuitem-text` are not caught by
+/// `share` / `menu` unless that part is exactly a hint.
+fn boilerplate_name(e: &scraper::node::Element) -> bool {
+    let mut names = Vec::new();
+    if let Some(id) = e.attr("id") {
+        names.push(id);
+    }
+    if let Some(class) = e.attr("class") {
+        names.extend(class.split_whitespace());
+    }
+    names.iter().any(|n| {
+        // Split on - _ and camelCase boundaries.
+        let mut parts = Vec::new();
+        let mut cur = String::new();
+        for c in n.chars() {
+            if c == '-' || c == '_' {
+                parts.push(std::mem::take(&mut cur));
+            } else if c.is_uppercase() && !cur.is_empty() {
+                parts.push(std::mem::take(&mut cur));
+                cur.extend(c.to_lowercase());
+            } else {
+                cur.extend(c.to_lowercase());
+            }
+        }
+        parts.push(cur);
+        parts.iter().any(|p| BOILERPLATE_HINTS.contains(&p.as_str()))
+    })
+}
+
+/// Mostly links (more than half the text, at least 3 links): a menu or "related" list.
+fn link_heavy(el: ElementRef<'_>) -> bool {
+    let link_sel = Selector::parse("a").expect("valid selector");
+    let links: Vec<ElementRef<'_>> = el.select(&link_sel).collect();
+    if links.len() < 3 {
+        return false;
+    }
+    let total: usize = el.text().map(|t| t.trim().chars().count()).sum();
+    let linked: usize = links.iter().flat_map(|a| a.text()).map(|t| t.trim().chars().count()).sum();
+    total > 0 && linked * 2 > total
+}
+
 pub struct Extracted {
     pub title: Option<String>,
     pub text: String,
@@ -53,7 +105,10 @@ fn walk(el: ElementRef<'_>, out: &mut String, in_pre: bool) {
             }
             Node::Element(e) => {
                 let name = e.name();
-                if SKIP.contains(&name) || hidden(e) {
+                if SKIP.contains(&name) || hidden(e) || boilerplate_name(e) {
+                    continue;
+                }
+                if LINK_DENSITY_BLOCKS.contains(&name) && ElementRef::wrap(child).is_some_and(link_heavy) {
                     continue;
                 }
                 if name == "br" {
@@ -216,6 +271,22 @@ mod tests {
         for junk in ["Menu item", "About", "secret", "var x", "©", "color:red"] {
             assert!(!e.text.contains(junk), "{junk}");
         }
+    }
+
+    #[test]
+    fn drops_link_lists_and_boilerplate_blocks_but_keeps_inline_links() {
+        let html = r#"<html><body>
+            <div class="post-body"><p>Water the <a href="/t">tomatoes</a> early in the morning, before the heat of the day.</p></div>
+            <div class="relatedPosts"><p>You may also like these gardening stories from our archive.</p></div>
+            <ul><li><a href="/1">Spring</a></li><li><a href="/2">Summer</a></li><li><a href="/3">Autumn</a></li></ul>
+            <div id="cookie-banner">We use cookies.</div>
+            <div class="shared-content"><p>Compost improves soil structure over several seasons.</p></div>
+        </body></html>"#;
+        let e = extract(html);
+        assert_eq!(
+            e.text,
+            "Water the tomatoes early in the morning, before the heat of the day.\n\nCompost improves soil structure over several seasons."
+        );
     }
 
     #[test]
