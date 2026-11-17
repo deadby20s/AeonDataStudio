@@ -1,5 +1,6 @@
 //! Importing source files into a new dataset.
 
+mod html;
 mod sources;
 
 use std::collections::BTreeMap;
@@ -59,7 +60,7 @@ pub fn preview(paths: &[String], format: ImportFormat, text_field: &str, text_mo
 
     let mut fields: Vec<FieldInfo> = Vec::new();
     
-    let sample_texts: Vec<String> = if first.format == ImportFormat::Text {
+    let sample_texts: Vec<String> = if !first.format.has_fields() {
         records.iter().filter_map(|r| r.text.as_deref()).take(PREVIEW_TEXTS).map(|t| clip(t, PREVIEW_CHARS)).collect()
     } else {
         let mut chars: Vec<u64> = Vec::new();
@@ -127,7 +128,7 @@ pub fn validate(req: &ImportRequest) -> AppResult<()> {
     if req.paths.is_empty() {
         return Err(AppError::InvalidInput("Add at least one file or folder".into()));
     }
-    if req.format != ImportFormat::Text && req.text_field.trim().is_empty() {
+    if req.format.has_fields() && req.text_field.trim().is_empty() {
         return Err(AppError::InvalidInput("Enter the name of the text field".into()));
     }
     Ok(())

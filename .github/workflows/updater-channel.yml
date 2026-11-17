@@ -1,0 +1,33 @@
+# When a release is published, copy its latest.json to the fixed "updater" release, which the
+# app checks for updates. (GitHub's "latest release" link skips pre-releases, and alpha releases
+# are pre-releases, so the app can't use it.)
+name: Updater channel
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.event.release.tag_name != 'updater'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Copy latest.json to the updater release
+        run: |
+          if ! gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json; then
+            echo "Release $TAG has no latest.json (built without the update signing key); nothing to do."
+            exit 0
+          fi
+          if ! gh release view updater --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create updater --repo "$GITHUB_REPOSITORY" --prerelease --latest=false \
+              --title "Updater channel" \
+              --notes "Used by the app's auto-updater; points to the newest published release. Not a release to download."
+          fi
+          gh release upload updater latest.json --repo "$GITHUB_REPOSITORY" --clobber
+          echo "Updater channel now points to $TAG"

@@ -47,6 +47,9 @@ pub enum AppError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+
+    #[error("Cancelled")]
+    Cancelled,
 }
 
 impl Serialize for AppError {

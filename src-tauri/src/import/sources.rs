@@ -73,6 +73,8 @@ fn detect(path: &Path) -> (Option<ImportFormat>, Compression, bool) {
         "txt" | "text" | "md" | "markdown" => Some(ImportFormat::Text),
         "csv" | "tsv" => Some(ImportFormat::Csv),
         "parquet" => Some(ImportFormat::Parquet),
+        "html" | "htm" | "xhtml" => Some(ImportFormat::Html),
+        "warc" => Some(ImportFormat::Warc),
         _ => None,
     };
     (format, compression, ext == "tsv")
@@ -190,9 +192,36 @@ pub fn read_file(
             bytes_read.fetch_add(file.size, Ordering::Relaxed);
             r
         }
+        ImportFormat::Html => read_html(open_stream(file, bytes_read)?, emit),
+        ImportFormat::Warc => read_warc_file(open_stream(file, bytes_read)?, emit),
         ImportFormat::Auto => Err(AppError::Internal("format was not resolved".into())),
     };
     result.map_err(|e| AppError::InvalidInput(format!("{}: {e}", file.source)))
+}
+
+fn read_html(mut reader: Box<dyn BufRead>, emit: &mut dyn FnMut(Item) -> AppResult<bool>) -> AppResult<()> {
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes)?;
+    let page = super::html::extract(&String::from_utf8_lossy(&bytes));
+    let mut meta = Map::new();
+    if let Some(t) = page.title {
+        meta.insert("title".into(), Value::String(t));
+    }
+    emit(Item::Record(RawRecord { id: None, text: Some(page.text), meta }))?;
+    Ok(())
+}
+
+fn read_warc_file(mut reader: Box<dyn BufRead>, emit: &mut dyn FnMut(Item) -> AppResult<bool>) -> AppResult<()> {
+    super::html::read_warc(&mut *reader, &mut |p| {
+        let page = super::html::extract(&p.html);
+        let mut meta = Map::new();
+        for (k, v) in [("url", p.url), ("date", p.date), ("title", page.title)] {
+            if let Some(v) = v {
+                meta.insert(k.into(), Value::String(v));
+            }
+        }
+        emit(Item::Record(RawRecord { id: p.record_id, text: Some(page.text), meta }))
+    })
 }
 
 fn record_from_object(mut obj: Map<String, Value>, opts: &ReadOptions<'_>) -> RawRecord {

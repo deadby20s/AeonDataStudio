@@ -6,6 +6,7 @@
 #   as workflow artifacts (no release), so the workflow can be checked safely.
 #
 # The version in the installers comes from src-tauri/tauri.conf.json, so bump it before tagging.
+# In-app updates: see docs/development.md ("Auto-updates") for the signing key setup.
 name: Release
 
 on:
@@ -45,6 +46,12 @@ jobs:
             args: ""
             targets: wasm32-unknown-unknown
     runs-on: ${{ matrix.platform }}
+    env:
+      # With the update signing key set as a repository secret, installers are signed for the
+      # in-app updater and latest.json is uploaded. Without it, plain installers are built.
+      HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -77,7 +84,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tauriScript: npx --yes @tauri-apps/cli@2
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} ${{ env.HAS_UPDATER_KEY == 'true' && '--config src-tauri/tauri.updater.conf.json' || '' }}
           # Only a tag push creates or updates a release; other runs just build.
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
           releaseName: "AeonDataStudio ${{ github.ref_name }}"

@@ -22,6 +22,8 @@ use crate::state::AppState;
 pub fn get_app_info(app: AppHandle, state: State<'_, AppState>) -> AppResult<AppInfo> {
     let workspace = state.current_workspace().map(|w| w.info()).transpose()?;
     Ok(AppInfo {
+        updates_configured: crate::updates::configured(),
+        sql_available: crate::sql::AVAILABLE,
         version: app.package_info().version.to_string(),
         workspace,
         recent_workspaces: state.recent_workspaces(),
@@ -88,7 +90,7 @@ pub async fn pick_import_files(app: AppHandle) -> AppResult<Vec<String>> {
             .set_title("Choose files to import")
             .add_filter(
                 "Data files",
-                &["jsonl", "ndjson", "json", "txt", "md", "csv", "tsv", "parquet", "gz", "zst"],
+                &["jsonl", "ndjson", "json", "txt", "md", "csv", "tsv", "parquet", "html", "htm", "warc", "gz", "zst"],
             )
             .add_filter("All files", &["*"])
             .blocking_pick_files())
@@ -224,7 +226,23 @@ pub async fn preview_pipeline(
     state: State<'_, AppState>,
 ) -> AppResult<PipelinePreview> {
     let dir = state.workspace()?.dataset_dir(&dataset_id)?;
-    blocking(move || pipeline::preview(&spec, &DatasetReader::open(&dir)?, sample_size)).await
+    // A new preview replaces (cancels) any preview still running.
+    let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    if let Ok(mut slot) = state.preview_cancel.lock()
+        && let Some(old) = slot.replace(flag.clone()) {
+            old.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    blocking(move || pipeline::preview(&spec, &DatasetReader::open(&dir)?, sample_size, &flag)).await
+}
+
+/// Stops the running preview; it returns a "Cancelled" error.
+#[tauri::command]
+pub fn cancel_preview(state: State<'_, AppState>) -> AppResult<()> {
+    if let Ok(slot) = state.preview_cancel.lock()
+        && let Some(flag) = slot.as_ref() {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    Ok(())
 }
 
 #[tauri::command]
@@ -361,24 +379,34 @@ pub async fn list_exports(state: State<'_, AppState>) -> AppResult<Vec<ExportSum
     blocking(move || export::list(&ws)).await
 }
 
+/// Deletes an export in the workspace, or forgets one made elsewhere (files kept).
 #[tauri::command]
-pub async fn delete_export(folder: String, state: State<'_, AppState>) -> AppResult<()> {
+pub async fn delete_export(path: String, state: State<'_, AppState>) -> AppResult<()> {
     let ws = state.workspace()?;
-    blocking(move || export::delete(&ws, &folder)).await
+    blocking(move || export::delete(&ws, &path)).await
 }
 
 /// Opens an export folder in the system file manager.
 #[tauri::command]
-pub fn open_export_folder(folder: String, app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+pub fn open_export_folder(path: String, app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
     use tauri_plugin_opener::OpenerExt;
     let ws = state.workspace()?;
-    let dir = export::export_dir(&ws, &folder)?;
+    let (dir, _) = export::resolve(&ws, &path)?;
     if !dir.is_dir() {
-        return Err(AppError::InvalidInput(format!("exports/{folder} does not exist")));
+        return Err(AppError::InvalidInput(format!("{} does not exist", dir.display())));
     }
     app.opener()
         .open_path(dir.display().to_string(), None::<&str>)
         .map_err(|e| AppError::Internal(format!("Could not open the folder: {e}")))
+}
+
+#[tauri::command]
+pub async fn pick_export_folder(app: AppHandle) -> AppResult<Option<String>> {
+    let picked = blocking(move || Ok(app.dialog().file().set_title("Choose where to save the export").blocking_pick_folder()))
+        .await?;
+    picked
+        .map(|p| p.into_path().map(|p| p.display().to_string()).map_err(|e| AppError::InvalidInput(e.to_string())))
+        .transpose()
 }
 
 #[tauri::command]
@@ -463,4 +491,79 @@ pub fn open_log_folder(app: AppHandle) -> AppResult<String> {
         .open_path(dir.display().to_string(), None::<&str>)
         .map_err(|e| AppError::Internal(format!("Could not open the folder: {e}")))?;
     Ok(dir.display().to_string())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Updates
+// ---------------------------------------------------------------------------------------------
+
+/// `Ok(None)` when up to date. Errors (including "not set up in this build") are shown as-is.
+#[tauri::command]
+pub async fn check_for_update(app: AppHandle) -> AppResult<Option<aeon_shared::UpdateInfo>> {
+    crate::updates::check(&app).await
+}
+
+/// Downloads, installs and restarts into the new version.
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> AppResult<()> {
+    crate::updates::install(&app).await
+}
+
+// ---------------------------------------------------------------------------------------------
+// SQL explorer
+// ---------------------------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn sql_tables(state: State<'_, AppState>) -> AppResult<Vec<aeon_shared::SqlTable>> {
+    let ws = state.workspace()?;
+    blocking(move || crate::sql::tables(&ws)).await
+}
+
+/// Runs a SQL query over the workspace's datasets and run logs (at most 1,000 rows returned).
+#[tauri::command]
+pub async fn run_sql(sql: String, limit: u64, state: State<'_, AppState>) -> AppResult<aeon_shared::SqlResult> {
+    let ws = state.workspace()?;
+    let limit = limit.clamp(1, 1000) as usize;
+    #[cfg(feature = "sql")]
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let task = tauri::async_runtime::spawn_blocking(move || {
+            crate::sql::run(&ws, &sql, limit, |handle| {
+                let _ = tx.send(handle);
+            })
+        });
+        // Register the interrupt handle as soon as the session exists.
+        if let Ok(handle) = tokio_free_recv(rx).await
+            && let Ok(mut s) = state.sql_cancel.lock()
+        {
+            *s = Some(Box::new(move || handle.interrupt()));
+        }
+        let result = task.await.map_err(|e| AppError::Internal(e.to_string()))?;
+        if let Ok(mut s) = state.sql_cancel.lock() {
+            *s = None;
+        }
+        result.map_err(|e| match e {
+            AppError::InvalidInput(m) if m.contains("INTERRUPT") || m.contains("nterrupt") => AppError::Cancelled,
+            other => other,
+        })
+    }
+    #[cfg(not(feature = "sql"))]
+    {
+        blocking(move || crate::sql::run(&ws, &sql, limit, |_| {})).await
+    }
+}
+
+/// Waits for the interrupt handle without blocking the async runtime.
+#[cfg(feature = "sql")]
+async fn tokio_free_recv<T: Send + 'static>(rx: std::sync::mpsc::Receiver<T>) -> Result<T, ()> {
+    tauri::async_runtime::spawn_blocking(move || rx.recv().map_err(|_| ())).await.map_err(|_| ())?
+}
+
+#[tauri::command]
+pub fn cancel_sql(state: State<'_, AppState>) -> AppResult<()> {
+    if let Ok(s) = state.sql_cancel.lock()
+        && let Some(cancel) = s.as_ref() {
+            cancel();
+        }
+    Ok(())
 }

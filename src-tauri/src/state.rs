@@ -49,12 +49,23 @@ pub struct AppState {
     settings: RwLock<AppSettings>,
     settings_path: PathBuf,
     pub jobs: Arc<JobManager>,
+    /// Cancel flag of the preview running now, if any (one preview at a time).
+    pub preview_cancel: std::sync::Mutex<Option<Arc<std::sync::atomic::AtomicBool>>>,
+    /// Interrupts the running SQL query, if any.
+    pub sql_cancel: std::sync::Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
 }
 
 impl AppState {
     pub fn new(settings_path: PathBuf, jobs: Arc<JobManager>) -> Self {
         let settings = AppSettings::load(&settings_path);
-        Self { workspace: RwLock::new(None), settings: RwLock::new(settings), settings_path, jobs }
+        Self {
+            workspace: RwLock::new(None),
+            settings: RwLock::new(settings),
+            settings_path,
+            jobs,
+            preview_cancel: std::sync::Mutex::new(None),
+            sql_cancel: std::sync::Mutex::new(None),
+        }
     }
 
     pub fn workspace(&self) -> AppResult<Arc<Workspace>> {

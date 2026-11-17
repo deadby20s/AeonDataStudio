@@ -227,6 +227,10 @@ pub async fn preview_pipeline(spec: &PipelineSpec, dataset_id: &str, sample_size
     call("preview_pipeline", &PreviewArgs { spec, dataset_id, sample_size }).await
 }
 
+pub async fn cancel_preview() -> ApiResult<()> {
+    call("cancel_preview", &NoArgs {}).await
+}
+
 pub async fn start_pipeline_run(spec: &PipelineSpec, dataset_id: &str, output_name: &str) -> ApiResult<JobId> {
     call("start_pipeline_run", &RunArgs { spec, dataset_id, output_name }).await
 }
@@ -290,8 +294,8 @@ struct ExportArgs<'a> {
 }
 
 #[derive(Serialize)]
-struct FolderArg<'a> {
-    folder: &'a str,
+struct PathOnlyArg<'a> {
+    path: &'a str,
 }
 
 #[derive(Serialize)]
@@ -316,12 +320,16 @@ pub async fn list_exports() -> ApiResult<Vec<ExportSummary>> {
     call("list_exports", &NoArgs {}).await
 }
 
-pub async fn delete_export(folder: &str) -> ApiResult<()> {
-    call("delete_export", &FolderArg { folder }).await
+pub async fn delete_export(path: &str) -> ApiResult<()> {
+    call("delete_export", &PathOnlyArg { path }).await
 }
 
-pub async fn open_export_folder(folder: &str) -> ApiResult<()> {
-    call("open_export_folder", &FolderArg { folder }).await
+pub async fn open_export_folder(path: &str) -> ApiResult<()> {
+    call("open_export_folder", &PathOnlyArg { path }).await
+}
+
+pub async fn pick_export_folder() -> ApiResult<Option<String>> {
+    call("pick_export_folder", &NoArgs {}).await
 }
 
 pub async fn pick_tokenizer_file() -> ApiResult<Option<String>> {
@@ -348,6 +356,32 @@ pub async fn create_demo_dataset() -> ApiResult<JobId> {
 /// Opens the log folder; returns its path.
 pub async fn open_log_folder() -> ApiResult<String> {
     call("open_log_folder", &NoArgs {}).await
+}
+
+pub async fn check_for_update() -> ApiResult<Option<aeon_shared::UpdateInfo>> {
+    call("check_for_update", &NoArgs {}).await
+}
+
+pub async fn install_update() -> ApiResult<()> {
+    call("install_update", &NoArgs {}).await
+}
+
+#[derive(Serialize)]
+struct SqlArgs<'a> {
+    sql: &'a str,
+    limit: u64,
+}
+
+pub async fn sql_tables() -> ApiResult<Vec<aeon_shared::SqlTable>> {
+    call("sql_tables", &NoArgs {}).await
+}
+
+pub async fn run_sql(sql: &str, limit: u64) -> ApiResult<aeon_shared::SqlResult> {
+    call("run_sql", &SqlArgs { sql, limit }).await
+}
+
+pub async fn cancel_sql() -> ApiResult<()> {
+    call("cancel_sql", &NoArgs {}).await
 }
 
 pub async fn list_jobs() -> ApiResult<Vec<JobStatus>> {

@@ -656,7 +656,12 @@ fn TryPanel() -> impl IntoView {
         busy.set(true);
         error.set(None);
         spawn_local(async move {
-            preview.set(Some(api::preview_pipeline(&spec, &id, sample_size.get_untracked()).await.map_err(|e| e.to_string())));
+            match api::preview_pipeline(&spec, &id, sample_size.get_untracked()).await {
+                Ok(p) => preview.set(Some(Ok(p))),
+                // A cancelled preview keeps showing the previous result.
+                Err(e) if e.0 == "Cancelled" => {}
+                Err(e) => preview.set(Some(Err(e.to_string()))),
+            }
             busy.set(false);
         });
     };
@@ -741,6 +746,13 @@ fn TryPanel() -> impl IntoView {
                     <button on:click=run_preview disabled=move || busy.get()>
                         {move || if busy.get() { "Previewing…" } else { "Preview on sample" }}
                     </button>
+                    <Show when=move || busy.get()>
+                        <button on:click=move |_| {
+                            spawn_local(async move {
+                                let _ = api::cancel_preview().await;
+                            });
+                        }>"Cancel preview"</button>
+                    </Show>
                     <button class="primary" on:click=run_full>"Run on full dataset"</button>
                 </div>
             </Show>

@@ -18,9 +18,46 @@ pub const JOB_UPDATE_EVENT: &str = "job://update";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppInfo {
     pub version: String,
+    /// Whether this build can update itself (it was built with the update signing key).
+    #[serde(default)]
+    pub updates_configured: bool,
+    /// Whether this build includes the SQL explorer.
+    #[serde(default)]
+    pub sql_available: bool,
     pub workspace: Option<WorkspaceInfo>,
     /// Recently opened workspace folders, most recent first.
     pub recent_workspaces: Vec<String>,
+}
+
+/// A view the SQL explorer offers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SqlTable {
+    pub name: String,
+    /// "dataset" or "removed".
+    pub kind: String,
+    pub description: String,
+    /// Parquet files behind the view.
+    pub glob: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SqlResult {
+    pub columns: Vec<String>,
+    /// Values as text; `None` is SQL NULL.
+    pub rows: Vec<Vec<Option<String>>>,
+    /// More rows exist than were returned.
+    pub truncated: bool,
+    pub elapsed_ms: u64,
+    /// For statements that return no rows.
+    pub message: Option<String>,
+}
+
+/// An available update.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateInfo {
+    pub version: String,
+    pub notes: Option<String>,
+    pub date: Option<String>,
 }
 
 /// The currently open workspace.
@@ -68,17 +105,28 @@ pub enum ImportFormat {
     /// Comma-separated (`.csv`) or tab-separated (`.tsv`) with a header row.
     Csv,
     Parquet,
+    /// Web pages (`.html`, `.htm`): one document per file, main text extracted.
+    Html,
+    /// Web archives (`.warc`, usually `.warc.gz`, e.g. Common Crawl): one document per HTML page.
+    Warc,
 }
 
 impl ImportFormat {
-    pub const ALL: [ImportFormat; 6] = [
+    pub const ALL: [ImportFormat; 8] = [
         ImportFormat::Auto,
         ImportFormat::Jsonl,
         ImportFormat::Json,
         ImportFormat::Text,
         ImportFormat::Csv,
         ImportFormat::Parquet,
+        ImportFormat::Html,
+        ImportFormat::Warc,
     ];
+
+    /// Formats where the text is extracted rather than taken from a field.
+    pub fn has_fields(self) -> bool {
+        !matches!(self, ImportFormat::Text | ImportFormat::Html | ImportFormat::Warc)
+    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -88,6 +136,8 @@ impl ImportFormat {
             ImportFormat::Text => "Plain text",
             ImportFormat::Csv => "CSV / TSV",
             ImportFormat::Parquet => "Parquet",
+            ImportFormat::Html => "HTML pages",
+            ImportFormat::Warc => "WARC web archive",
         }
     }
 
@@ -99,6 +149,8 @@ impl ImportFormat {
             ImportFormat::Text => "text",
             ImportFormat::Csv => "CSV",
             ImportFormat::Parquet => "Parquet",
+            ImportFormat::Html => "HTML",
+            ImportFormat::Warc => "WARC",
         }
     }
 }

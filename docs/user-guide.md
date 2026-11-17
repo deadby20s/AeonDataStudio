@@ -24,8 +24,11 @@ languages, broken encoding, …) and a matching **Demo cleanup** pipeline. Each 
 **Datasets → Import…**
 
 1. Add sources with **Add files…**, **Add folder…** (searched recursively), or paste a path and
-   press Enter. Supported: JSONL/NDJSON, JSON arrays, plain text and Markdown, CSV/TSV, Parquet;
-   `.gz` and `.zst` are decompressed automatically.
+   press Enter. Supported: JSONL/NDJSON, JSON arrays, plain text and Markdown, CSV/TSV, Parquet,
+   **HTML pages** (one document per file) and **WARC web archives** such as Common Crawl's
+   `.warc.gz` files (one document per HTML page); `.gz` and `.zst` are decompressed
+   automatically. For HTML and WARC the main text is extracted (menus, headers, footers,
+   scripts and the like are dropped) and the page title, URL and crawl date become metadata.
 2. The **preview** samples the first file and lists its fields with examples and average length.
    The app picks the field with the longest text if the text field you typed doesn't exist;
    use **Use as text** / **Use as ID** to choose differently. The first few documents are shown
@@ -95,9 +98,11 @@ Tokenizers: built-in tiktoken encodings (`o200k_base`, `cl100k_base`, `p50k_base
 `r50k_base`/GPT-2) or any Hugging Face `tokenizer.json`. **Append end-of-text token** puts the
 tokenizer's end-of-text id after every document.
 
-Exports go to `exports/<name>/` with `manifest.json` (source dataset and how it was made,
-settings, tokenizer, counts, file list) and `SHA256SUMS` (`sha256sum -c SHA256SUMS` verifies
-the files). **Exports** lists them, with **Open folder** and **Delete**.
+Exports go to `exports/<name>/` in the workspace, or to a folder you choose with **Save to →
+Choose folder…**, with `manifest.json` (source dataset and how it was made, settings,
+tokenizer, counts, file list) and `SHA256SUMS` (`sha256sum -c SHA256SUMS` verifies the files).
+**Exports** lists them all, with **Open folder** and **Delete** (for exports outside the
+workspace, **Remove from list**: the app never deletes files outside the workspace).
 
 Reading a token shard in Python:
 
@@ -107,6 +112,20 @@ tokens = np.fromfile("tokens-00000.bin", dtype=np.uint32)   # dtype from manifes
 offsets = np.fromfile("tokens-00000.idx", dtype=np.uint64)
 doc_3 = tokens[offsets[3]:offsets[4]]
 ```
+
+## 8. Query with SQL
+
+**SQL** runs DuckDB queries over the workspace: every dataset is a table `ds_<name>` (columns
+`id`, `text`, `source`, `meta`; `meta` is JSON, so `meta->>'url'` works) and every run's removed
+documents a table `removed_<run>`. Click a table to start a query, or pick an example (documents
+per source, length distribution, filtering by metadata, text search). **Ctrl+Enter** runs, up to
+1,000 rows are shown, and long queries can be cancelled. DuckDB uses half of your CPU cores.
+
+## Updates
+
+**Settings → Updates** checks for a new version and installs it (the app restarts). When one is
+available, the sidebar says so. Builds made before updates were set up say so instead; download
+new versions from the Releases page.
 
 ## Logs
 
@@ -133,8 +152,10 @@ workspace/
 
 ## Known limitations of the alpha
 
-- Only text; no HTML extraction, PII masking or benchmark decontamination yet.
-- Search is substring matching without an index.
-- Exports always go to the workspace's `exports/` folder.
+- No benchmark decontamination or model-based quality filters yet.
+- The document browser's search scans without an index (bounded to 2 seconds per page); the
+  SQL page is faster for searching large datasets.
+- Personal-information masking is pattern-based: emails, phone numbers, IPs and card numbers,
+  not names or postal addresses.
 - Near-duplicate removal trusts LSH band collisions without re-checking similarity.
-- Tested on Windows 11. macOS and Linux builds should work but are untested.
+- Tested on Windows 11. macOS and Linux installers are built by CI but not tested by hand.

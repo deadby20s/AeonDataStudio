@@ -8,7 +8,9 @@ use rayon::prelude::*;
 use super::dedup::resolve_in_memory;
 use super::{Decisions, Pipeline, StatsAccumulator};
 use crate::dataset::DatasetReader;
-use crate::error::AppResult;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use crate::error::{AppError, AppResult};
 
 /// The sample is taken in this many evenly spaced chunks, so it covers different parts
 /// (and usually different source files) of the dataset.
@@ -18,12 +20,20 @@ const EXAMPLES_PER_STEP: usize = 3;
 const EXAMPLE_CHARS: usize = 300;
 pub const MAX_SAMPLE: u64 = 20_000;
 
-pub fn preview(spec: &PipelineSpec, reader: &DatasetReader, sample_size: u64) -> AppResult<PipelinePreview> {
+/// Runs `spec` on a sample. Returns [`AppError::Cancelled`] soon after `cancel` is set.
+pub fn preview(
+    spec: &PipelineSpec,
+    reader: &DatasetReader,
+    sample_size: u64,
+    cancel: &AtomicBool,
+) -> AppResult<PipelinePreview> {
+    let check = || if cancel.load(Ordering::Relaxed) { Err(AppError::Cancelled) } else { Ok(()) };
     let pipeline = Pipeline::compile(spec)?;
     let total = reader.row_count();
     let sample_size = sample_size.clamp(1, MAX_SAMPLE).min(total);
 
     let docs = sample(reader, sample_size)?;
+    check()?;
 
     // Dedup steps only see the sample here, so they find duplicates within it.
     let mut decisions = Decisions::default();
@@ -31,21 +41,29 @@ pub fn preview(spec: &PipelineSpec, reader: &DatasetReader, sample_size: u64) ->
         let fingerprints: Vec<(u64, Vec<u64>)> = docs
             .par_iter()
             .filter_map(|(row, _, text)| {
+                if cancel.load(Ordering::Relaxed) {
+                    return None;
+                }
                 let o = pipeline.process(text.clone(), *row, &decisions, Some(pos));
                 if o.reached_stop { pipeline.fingerprint(pos, &o.text).map(|f| (*row, f)) } else { None }
             })
             .collect();
+        check()?;
         let dups = resolve_in_memory(pipeline.bands(pos), &fingerprints);
         decisions.set(pos, dups);
     }
 
-    let results: Vec<_> = docs
+    let results: Option<Vec<_>> = docs
         .into_par_iter()
         .map(|(row, id, text)| {
+            if cancel.load(Ordering::Relaxed) {
+                return None;
+            }
             let outcome = pipeline.process(text.clone(), row, &decisions, None);
-            (id, text, outcome)
+            Some((id, text, outcome))
         })
         .collect();
+    let results = results.ok_or(AppError::Cancelled)?;
 
     let mut stats = StatsAccumulator::new(&pipeline);
     let mut drop_examples = Vec::new();
@@ -195,6 +213,16 @@ mod tests {
             assert_eq!(id.parse::<u64>().unwrap(), *row);
             *row
         }).collect()
+    }
+
+    #[test]
+    fn cancelled_preview_returns_cancelled() {
+        let (_root, r) = dataset(500);
+        let spec = PipelineSpec::template("t");
+        let flag = AtomicBool::new(true);
+        assert!(matches!(preview(&spec, &r, 100, &flag), Err(AppError::Cancelled)));
+        let flag = AtomicBool::new(false);
+        assert_eq!(preview(&spec, &r, 100, &flag).unwrap().sample_docs, 100);
     }
 
     #[test]

@@ -9,6 +9,7 @@ use crate::pipelines::{Draft, PipelinesPage};
 use crate::exports::ExportsPage;
 use crate::inspector::InspectorPage;
 use crate::runs::RunsPage;
+use crate::sql::SqlPage;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
@@ -16,17 +17,19 @@ pub enum Page {
     Pipelines,
     Runs,
     Inspector,
+    Sql,
     Exports,
     Jobs,
     Settings,
 }
 
 impl Page {
-    const NAV: [Page; 7] = [
+    const NAV: [Page; 8] = [
         Page::Datasets,
         Page::Pipelines,
         Page::Runs,
         Page::Inspector,
+        Page::Sql,
         Page::Exports,
         Page::Jobs,
         Page::Settings,
@@ -38,6 +41,7 @@ impl Page {
             Page::Pipelines => "Pipelines",
             Page::Runs => "Runs",
             Page::Inspector => "Inspector",
+            Page::Sql => "SQL",
             Page::Exports => "Exports",
             Page::Jobs => "Jobs",
             Page::Settings => "Settings",
@@ -63,6 +67,10 @@ pub struct AppCtx {
     pub draft: RwSignal<Option<Draft>>,
     /// Run shown in the Inspector; `None` picks the newest.
     pub inspect_run: RwSignal<Option<String>>,
+    pub updates_configured: RwSignal<bool>,
+    pub sql_available: RwSignal<bool>,
+    /// Set when a newer version is available.
+    pub update: RwSignal<Option<aeon_shared::UpdateInfo>>,
 }
 
 impl AppCtx {
@@ -79,6 +87,9 @@ impl AppCtx {
             selected_run: RwSignal::new(None),
             draft: RwSignal::new(None),
             inspect_run: RwSignal::new(None),
+            updates_configured: RwSignal::new(false),
+            sql_available: RwSignal::new(false),
+            update: RwSignal::new(None),
         }
     }
 
@@ -97,6 +108,8 @@ impl AppCtx {
     pub async fn refresh(&self) -> api::ApiResult<()> {
         let info = api::get_app_info().await?;
         self.version.set(info.version);
+        self.updates_configured.set(info.updates_configured);
+        self.sql_available.set(info.sql_available);
         self.workspace.set(info.workspace);
         self.recent.set(info.recent_workspaces);
         Ok(())
@@ -119,6 +132,12 @@ pub fn App() -> impl IntoView {
                 ctx.upsert_job(job);
             }
             api::on_job_update(move |status| ctx.upsert_job(status)).await?;
+            if ctx.updates_configured.get_untracked() {
+                // Quietly: a failed check (offline, …) just shows nothing.
+                if let Ok(Some(u)) = api::check_for_update().await {
+                    ctx.update.set(Some(u));
+                }
+            }
             Ok(())
         }
         .await;
@@ -204,6 +223,13 @@ fn Shell() -> impl IntoView {
                         })
                         .collect_view()}
                 </ul>
+                {move || {
+                    ctx.update.get().map(|u| view! {
+                        <button class="update-pill" on:click=move |_| ctx.page.set(Page::Settings)>
+                            {format!("Update {} available", u.version)}
+                        </button>
+                    })
+                }}
                 <div class="sidebar-footer muted small">"v" {move || ctx.version.get()} " alpha"</div>
             </nav>
             <main class="content">
@@ -213,6 +239,7 @@ fn Shell() -> impl IntoView {
                     Page::Runs => view! { <RunsPage/> }.into_any(),
                     Page::Inspector => view! { <InspectorPage/> }.into_any(),
                     Page::Exports => view! { <ExportsPage/> }.into_any(),
+                    Page::Sql => view! { <SqlPage/> }.into_any(),
                     Page::Jobs => view! { <JobsPage/> }.into_any(),
                     Page::Settings => view! { <SettingsPage/> }.into_any(),
                 }}

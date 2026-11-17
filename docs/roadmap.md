@@ -44,16 +44,26 @@ Milestones are ordered; each one should leave the app usable.
 - [x] App icon, content security policy, release build and installers.
 - [x] User guide and changelog.
 
-## After the alpha
-- SQL explorer with DuckDB over datasets, runs and removed logs (Parquet is read natively, so
-  no migration): ad-hoc queries, filtering by metadata, distributions of any field.
-- Export to a folder outside the workspace; per-source token counts.
-- Search index for large datasets.
-- Cancel button for previews.
+## After the alpha (0.2)
+- [x] CI (tests, clippy, WebAssembly build) and release builds for Windows, macOS and Linux.
+- [x] Signed auto-updates (needs the maintainer's signing key; see docs/development.md).
+- [x] Demo dataset, log file, issue templates.
+- [x] SQL explorer with DuckDB over datasets and removed logs. This also covers fast search on
+      large datasets, so a separate search index is not planned for now.
+- [x] Export to a folder outside the workspace.
+- [x] Cancel button for previews.
+- [x] Personal-information masking (pattern-based).
+- [x] HTML and WARC (Common Crawl) import with main-text extraction.
+- [x] Scale test on GitHub (`Scale test` workflow).
+- [ ] Per-source token counts in token exports.
 
 ## Later
-- PII masking.
+- **Model-based quality filter (fastText).** Deferred, not started: the useful classifiers
+  (e.g. DCLM's) are multi-gigabyte downloads, so loading needs several GB of RAM, and a
+  pure-Rust loader can only be verified against a real model. Plan: read fastText `.bin`
+  supervised models (softmax loss; no quantized `.ftz`), compute word + subword + word-n-gram
+  averages, score with the label's output row, and expose a `quality_filter` step with a
+  model path and threshold, tested against a small model trained for the test.
+- Perplexity filter with a small language model.
 - Benchmark decontamination.
-- Model-based quality and perplexity filters.
-- HTML/web archive (WARC) ingestion.
 - Code-specific filters (license headers, generated files, minified code).

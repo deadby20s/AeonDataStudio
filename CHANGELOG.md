@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Installers for Windows, macOS (Apple silicon and Intel) and Linux, built by GitHub Actions;
+  CI runs tests and lints on every change.
+- Signed in-app updates (Settings → Updates), once the release signing key is set up.
+- Import HTML pages and WARC web archives (Common Crawl) with main-text extraction.
+- Mask personal information: emails, phone numbers, IP addresses, card numbers.
+- SQL page: DuckDB queries over datasets and removed-document logs.
+- Export to any folder.
+- Cancel a running preview.
+- Demo dataset with planted problems, and a log file (Settings → Open log folder).
+- Issue templates for bug reports and feature requests.
+
 ## 0.1.0 alpha — 2026-11-15
 
 First usable version: the full path from raw files to training-ready shards.

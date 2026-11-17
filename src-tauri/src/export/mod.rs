@@ -362,9 +362,19 @@ pub fn run(ctx: &mut JobCtx, ws: Arc<Workspace>, req: ExportRequest, app_version
     validate(&req)?;
     let reader = DatasetReader::open(&ws.dataset_dir(&req.dataset_id)?)?;
     let folder = folder_name(&req.name);
-    let exports = ws.exports_dir();
+    let external = req.output_dir.as_deref().map(str::trim).filter(|d| !d.is_empty()).map(PathBuf::from);
+    let exports = match &external {
+        Some(dir) if !dir.is_dir() => {
+            return Err(AppError::InvalidInput(format!("{} is not a folder", dir.display())));
+        }
+        Some(dir) => dir.clone(),
+        None => ws.exports_dir(),
+    };
     if exports.join(&folder).exists() {
-        return Err(AppError::InvalidInput(format!("An export folder named \"{folder}\" already exists")));
+        return Err(AppError::InvalidInput(format!(
+            "A folder named \"{folder}\" already exists in {}",
+            exports.display()
+        )));
     }
     // Load the tokenizer before writing anything, so a bad tokenizer fails fast.
     let tokenizer = match (&req.format, &req.tokenizer) {
@@ -410,11 +420,15 @@ pub fn run(ctx: &mut JobCtx, ws: Arc<Workspace>, req: ExportRequest, app_version
     };
     std::fs::write(temp.path().join(MANIFEST_FILE), serde_json::to_string_pretty(&manifest)?)?;
     std::fs::write(temp.path().join("SHA256SUMS"), checksum_file(&manifest))?;
-    temp.commit()?;
+    let final_dir = temp.commit()?;
+    if external.is_some() {
+        remember_external(&ws, &final_dir)?;
+    }
+    let shown = if external.is_some() { final_dir.display().to_string() } else { format!("exports/{folder}") };
 
     let size: u64 = manifest.files.iter().map(|f| f.bytes).sum();
     let mut message = format!(
-        "Exported {} documents to exports/{folder} ({} file{}, {:.1} MB)",
+        "Exported {} documents to {shown} ({} file{}, {:.1} MB)",
         thousands(docs),
         manifest.files.len(),
         if manifest.files.len() == 1 { "" } else { "s" },
@@ -423,7 +437,7 @@ pub fn run(ctx: &mut JobCtx, ws: Arc<Workspace>, req: ExportRequest, app_version
     if let Some(t) = tokens {
         message.push_str(&format!(", {} tokens", thousands(t)));
     }
-    Ok(JobOutcome::Produced(message, JobLink::Export(folder)))
+    Ok(JobOutcome::Produced(message, JobLink::Export(final_dir.display().to_string())))
 }
 
 /// `sha256sum`-compatible listing, so `sha256sum -c SHA256SUMS` verifies the export.
@@ -435,18 +449,66 @@ pub fn read_manifest(dir: &Path) -> AppResult<ExportManifest> {
     Ok(serde_json::from_str(&std::fs::read_to_string(dir.join(MANIFEST_FILE))?)?)
 }
 
+/// Exports made outside the workspace are remembered here so they still appear in the list.
+const EXTERNAL_LIST: &str = "external.json";
+
+fn external_list(ws: &Workspace) -> Vec<PathBuf> {
+    std::fs::read_to_string(ws.exports_dir().join(EXTERNAL_LIST))
+        .ok()
+        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(PathBuf::from)
+        .collect()
+}
+
+fn save_external_list(ws: &Workspace, paths: &[PathBuf]) -> AppResult<()> {
+    let list: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+    std::fs::write(ws.exports_dir().join(EXTERNAL_LIST), serde_json::to_string_pretty(&list)?)?;
+    Ok(())
+}
+
+fn remember_external(ws: &Workspace, dir: &Path) -> AppResult<()> {
+    let mut list = external_list(ws);
+    if !list.iter().any(|p| p == dir) {
+        list.push(dir.to_path_buf());
+    }
+    save_external_list(ws, &list)
+}
+
+/// An export's folder, if `path` is one this workspace knows: inside `exports/`, or a
+/// remembered external export. Returns the folder and whether it is external.
+pub fn resolve(ws: &Workspace, path: &str) -> AppResult<(PathBuf, bool)> {
+    let p = PathBuf::from(path);
+    let exports = ws.exports_dir();
+    if p.parent() == Some(exports.as_path()) {
+        let folder = p.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+        return Ok((export_dir(ws, &folder)?, false));
+    }
+    if external_list(ws).contains(&p) {
+        return Ok((p, true));
+    }
+    Err(AppError::InvalidInput(format!("{path} is not an export of this workspace")))
+}
+
 pub fn list(ws: &Workspace) -> AppResult<Vec<ExportSummary>> {
-    let mut out = Vec::new();
+    let mut dirs: Vec<(PathBuf, bool)> = Vec::new();
     for entry in std::fs::read_dir(ws.exports_dir())? {
         let entry = entry?;
         let folder = entry.file_name().to_string_lossy().into_owned();
-        if !entry.file_type()?.is_dir() || !is_valid_folder(&folder) {
-            continue;
+        if entry.file_type()?.is_dir() && is_valid_folder(&folder) {
+            dirs.push((entry.path(), false));
         }
-        let Ok(m) = read_manifest(&entry.path()) else { continue };
+    }
+    dirs.extend(external_list(ws).into_iter().map(|p| (p, true)));
+    let mut out = Vec::new();
+    for (dir, external) in dirs {
+        // External exports that were moved or deleted outside the app are skipped.
+        let Ok(m) = read_manifest(&dir) else { continue };
         out.push(ExportSummary {
-            folder,
-            path: entry.path().display().to_string(),
+            folder: dir.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default(),
+            path: dir.display().to_string(),
+            external,
             name: m.name,
             created_at_ms: m.created_at_ms,
             format: m.request.format,
@@ -461,10 +523,16 @@ pub fn list(ws: &Workspace) -> AppResult<Vec<ExportSummary>> {
     Ok(out)
 }
 
-pub fn delete(ws: &Workspace, folder: &str) -> AppResult<()> {
-    let dir = export_dir(ws, folder)?;
+/// Deletes an export inside the workspace. An export outside the workspace is only removed
+/// from the list; its files are never deleted by the app.
+pub fn delete(ws: &Workspace, path: &str) -> AppResult<()> {
+    let (dir, external) = resolve(ws, path)?;
+    if external {
+        let list: Vec<PathBuf> = external_list(ws).into_iter().filter(|p| *p != dir).collect();
+        return save_external_list(ws, &list);
+    }
     if !dir.join(MANIFEST_FILE).is_file() {
-        return Err(AppError::InvalidInput(format!("exports/{folder} is not an export made by AeonDataStudio")));
+        return Err(AppError::InvalidInput(format!("{} is not an export made by AeonDataStudio", dir.display())));
     }
     std::fs::remove_dir_all(dir)?;
     Ok(())
@@ -546,6 +614,7 @@ mod tests {
             include_meta: true,
             tokenizer: None,
             append_eos: true,
+            output_dir: None,
         }
     }
 
@@ -570,8 +639,28 @@ mod tests {
         // Same name again is refused rather than overwritten.
         assert_eq!(export(&ws, &jobs, request(&ds, "my export", ExportFormat::Jsonl)).state, JobState::Failed);
         assert_eq!(list(&ws).unwrap().len(), 1);
-        delete(&ws, "my-export").unwrap();
+        delete(&ws, &dir.display().to_string()).unwrap();
         assert!(list(&ws).unwrap().is_empty());
+    }
+
+    #[test]
+    fn export_to_outside_folder_is_listed_and_only_forgotten_on_delete() {
+        let (_d, ws, jobs, ds) = setup(100);
+        let outside = tempfile::tempdir().unwrap();
+        let mut req = request(&ds, "Outside", ExportFormat::Jsonl);
+        req.output_dir = Some(outside.path().display().to_string());
+        let s = export(&ws, &jobs, req);
+        assert_eq!(s.state, JobState::Completed, "{:?}", s.message);
+        let dir = outside.path().join("outside");
+        assert!(dir.join("manifest.json").is_file());
+        let listed = list(&ws).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].external);
+        delete(&ws, &listed[0].path).unwrap();
+        assert!(list(&ws).unwrap().is_empty(), "forgotten");
+        assert!(dir.join("manifest.json").is_file(), "files outside the workspace are kept");
+        // Unknown paths are refused.
+        assert!(delete(&ws, &outside.path().display().to_string()).is_err());
     }
 
     #[test]
