@@ -1,0 +1,54 @@
+# Runs the whole workflow (generate → import → template pipeline with dedup → token export) on
+# millions of documents and writes timings, peak memory and disk use to the run summary.
+# Start it from Actions → Scale test → Run workflow; pull requests that change the test run it
+# with 2 million documents.
+name: Scale test
+
+on:
+  workflow_dispatch:
+    inputs:
+      docs:
+        description: Number of documents
+        default: "2000000"
+  pull_request:
+    paths:
+      - .github/workflows/scale-test.yml
+      - src-tauri/src/scale.rs
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  scale:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: scale
+
+      - name: Create dist folder
+        run: mkdir -p dist
+
+      - name: Disk before
+        run: df -h /
+
+      - name: Scale test
+        env:
+          SCALE_DOCS: ${{ inputs.docs || '2000000' }}
+          SCALE_DIR: ${{ runner.temp }}/scale
+        # Release build without the SQL explorer (not part of this test).
+        run: cargo test --release -p aeondatastudio --no-default-features --lib scale::scale_test -- --ignored --nocapture
+
+      - name: Disk after
+        if: always()
+        run: df -h /

@@ -8,6 +8,8 @@ mod import;
 mod jobs;
 mod mix;
 mod pipeline;
+#[cfg(test)]
+mod scale;
 mod sql;
 mod state;
 mod updates;
