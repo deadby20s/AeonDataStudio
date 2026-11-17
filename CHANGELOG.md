@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 alpha (unreleased)
+## 0.3.0 alpha — 2026-11-17
 
 Use the studio from scripts, servers and AI assistants. Extend it with plugins and
 language models. Pick your colors.
