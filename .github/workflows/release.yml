@@ -120,7 +120,7 @@ jobs:
           [ -n "${{ matrix.args }}" ] && dir=target/$(echo "${{ matrix.args }}" | awk '{print $2}')/release
           ext=""; [ "${{ runner.os }}" = "Windows" ] && ext=".exe"
           mkdir -p cli-dist
-          cp "$dir/aeon$ext" "cli-dist/aeon-${{ matrix.name }}$ext"
+          cp "$dir/aeon$ext" "cli-dist/aeon-cli-${{ matrix.name }}$ext"
 
       - name: Attach the CLI to the release
         if: github.ref_type == 'tag'
