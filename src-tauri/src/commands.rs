@@ -225,7 +225,25 @@ pub async fn preview_pipeline(
     state: State<'_, AppState>,
 ) -> AppResult<PipelinePreview> {
     let dir = state.workspace()?.dataset_dir(&dataset_id)?;
-    blocking(move || pipeline::preview(&spec, &DatasetReader::open(&dir)?, sample_size)).await
+    // A new preview replaces (cancels) any preview still running.
+    let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    if let Ok(mut slot) = state.preview_cancel.lock() {
+        if let Some(old) = slot.replace(flag.clone()) {
+            old.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+    blocking(move || pipeline::preview(&spec, &DatasetReader::open(&dir)?, sample_size, &flag)).await
+}
+
+/// Stops the running preview; it returns a "Cancelled" error.
+#[tauri::command]
+pub fn cancel_preview(state: State<'_, AppState>) -> AppResult<()> {
+    if let Ok(slot) = state.preview_cancel.lock() {
+        if let Some(flag) = slot.as_ref() {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]

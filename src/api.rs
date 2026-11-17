@@ -227,6 +227,10 @@ pub async fn preview_pipeline(spec: &PipelineSpec, dataset_id: &str, sample_size
     call("preview_pipeline", &PreviewArgs { spec, dataset_id, sample_size }).await
 }
 
+pub async fn cancel_preview() -> ApiResult<()> {
+    call("cancel_preview", &NoArgs {}).await
+}
+
 pub async fn start_pipeline_run(spec: &PipelineSpec, dataset_id: &str, output_name: &str) -> ApiResult<JobId> {
     call("start_pipeline_run", &RunArgs { spec, dataset_id, output_name }).await
 }

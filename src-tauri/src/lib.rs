@@ -73,6 +73,7 @@ pub fn run() {
             commands::save_pipeline,
             commands::delete_pipeline,
             commands::preview_pipeline,
+            commands::cancel_preview,
             commands::start_pipeline_run,
             commands::list_runs,
             commands::get_run,
