@@ -1,8 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 alpha — 2026-11-17
+
+Installers for all three systems, Common Crawl import, published filter presets, and SQL.
 
 ### Added
+- Pipeline presets when creating a pipeline: Gopher-style, FineWeb-style, C4-style, Minimal.
+- C4 filter (C4's line and document rules) and FineWeb filter (FineWeb's quality rules).
+- Better HTML extraction: skips blocks named like menus, sidebars, cookie banners and "related"
+  lists, and blocks that are mostly links.
 - Installers for Windows, macOS (Apple silicon and Intel) and Linux, built by GitHub Actions;
   CI runs tests and lints on every change.
 - Signed in-app updates (Settings → Updates), once the release signing key is set up.
@@ -13,6 +19,10 @@
 - Cancel a running preview.
 - Demo dataset with planted problems, and a log file (Settings → Open log folder).
 - Issue templates for bug reports and feature requests.
+
+### Measured
+- 2 million documents through the full template with exact and near dedup on a GitHub
+  runner: 6.9 minutes, 148 MB peak memory; dedup found the planted 5% exact and 5% near copies.
 
 ## 0.1.0 alpha — 2026-11-15
 

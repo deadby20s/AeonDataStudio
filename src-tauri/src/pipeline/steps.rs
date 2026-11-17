@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use aeon_shared::{
-    BlocklistFilter, CharacterRatioFilter, CleanCharacters, LanguageFilter, LengthFilter, MaskPii, NormalizeUnicode,
+    BlocklistFilter, C4Filter, CharacterRatioFilter, FineWebFilter, CleanCharacters, LanguageFilter, LengthFilter, MaskPii, NormalizeUnicode,
     NormalizeWhitespace, RepetitionFilter, StepConfig, UnicodeForm, WordQualityFilter,
 };
 use unicode_normalization::{IsNormalized, UnicodeNormalization, is_nfc_quick, is_nfkc_quick};
@@ -62,6 +62,13 @@ pub fn build(config: &StepConfig) -> AppResult<Box<dyn Step>> {
             Box::new(c.clone())
         }
         StepConfig::BlocklistFilter(c) => Box::new(Blocklist::new(c)),
+        StepConfig::C4Filter(c) => Box::new(c.clone()),
+        StepConfig::FineWebFilter(c) => {
+            for r in [c.min_line_punctuation_ratio, c.max_short_line_ratio, c.max_duplicate_line_char_ratio, c.max_newline_word_ratio] {
+                check_ratio(r)?;
+            }
+            Box::new(c.clone())
+        }
         StepConfig::ExactDedup(_) | StepConfig::NearDedup(_) => {
             return Err(AppError::Internal("dedup steps are compiled by the pipeline, not as document steps".into()));
         }
@@ -564,6 +571,107 @@ impl Step for RepetitionFilter {
     }
 }
 
+/// Ends in sentence punctuation, allowing a closing quote or bracket after it.
+fn ends_with_terminal_punctuation(line: &str) -> bool {
+    let t = line.trim_end().trim_end_matches(['"', '\'', '”', '’', ')', ']', '»']);
+    t.ends_with(['.', '!', '?', '…'])
+}
+
+const POLICY_PHRASES: [&str; 6] =
+    ["terms of use", "privacy policy", "cookie policy", "uses cookies", "use of cookies", "use cookies"];
+
+impl Step for C4Filter {
+    fn apply(&self, text: &mut String) -> Verdict {
+        let lower_doc = text.to_lowercase();
+        if self.drop_lorem_ipsum && lower_doc.contains("lorem ipsum") {
+            return reject("c4_lorem_ipsum", "contains lorem ipsum".into());
+        }
+        if self.drop_curly_brackets && text.contains('{') {
+            return reject("c4_curly_bracket", "contains {".into());
+        }
+        let mut kept: Vec<&str> = Vec::new();
+        let mut removed = 0usize;
+        for line in text.lines() {
+            let t = line.trim();
+            if t.is_empty() {
+                kept.push(line);
+                continue;
+            }
+            let lower = t.to_lowercase();
+            let words: Vec<&str> = t.split_whitespace().collect();
+            let drop = (self.drop_lines_without_terminal_punctuation && !ends_with_terminal_punctuation(t))
+                || self.min_words_per_line.is_some_and(|m| (words.len() as u64) < m)
+                || self.max_word_length.is_some_and(|m| words.iter().any(|w| w.chars().count() as u64 > m))
+                || (self.drop_javascript_lines && lower.contains("javascript"))
+                || (self.drop_policy_lines && POLICY_PHRASES.iter().any(|p| lower.contains(p)));
+            if drop {
+                removed += 1;
+            } else {
+                kept.push(line);
+            }
+        }
+        let new_text = if removed > 0 { kept.join("\n").trim().to_string() } else { text.clone() };
+        if new_text.trim().is_empty() {
+            return reject("c4_no_lines_left", format!("all {removed} lines removed"));
+        }
+        if let Some(min) = self.min_sentences {
+            let sentences = new_text
+                .split_inclusive(['.', '!', '?'])
+                .filter(|s| s.trim_end().ends_with(['.', '!', '?']) && s.split_whitespace().count() > 0)
+                .count() as u64;
+            if sentences < min {
+                return reject("c4_min_sentences", format!("{sentences} sentences < {min}"));
+            }
+        }
+        replace_if_changed(text, new_text)
+    }
+}
+
+impl Step for FineWebFilter {
+    fn apply(&self, text: &mut String) -> Verdict {
+        let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+        if lines.is_empty() {
+            return reject("fineweb_no_lines", "no text".into());
+        }
+        let n = lines.len() as f64;
+        if let Some(t) = self.min_line_punctuation_ratio {
+            let r = lines.iter().filter(|l| ends_with_terminal_punctuation(l)).count() as f64 / n;
+            if r < t {
+                return reject("fineweb_line_punctuation", format!("{r:.3} < {t}"));
+            }
+        }
+        if let Some(t) = self.max_short_line_ratio {
+            let r = lines.iter().filter(|l| l.chars().count() as u64 <= self.short_line_length).count() as f64 / n;
+            if r > t {
+                return reject("fineweb_short_lines", format!("{r:.3} > {t}"));
+            }
+        }
+        if let Some(t) = self.max_duplicate_line_char_ratio {
+            let mut seen = HashSet::new();
+            let (mut dup, mut total) = (0usize, 0usize);
+            for l in &lines {
+                let c = l.chars().count();
+                total += c;
+                if !seen.insert(*l) {
+                    dup += c;
+                }
+            }
+            let r = if total == 0 { 0.0 } else { dup as f64 / total as f64 };
+            if r > t {
+                return reject("fineweb_duplicate_lines", format!("{r:.3} > {t}"));
+            }
+        }
+        if let Some(t) = self.max_newline_word_ratio {
+            let words = text.split_whitespace().count().max(1) as f64;
+            let r = text.matches('\n').count() as f64 / words;
+            if r > t {
+                return reject("fineweb_list_like", format!("{r:.3} > {t}"));
+            }
+        }
+        Verdict::Unchanged
+    }
+}
+
 struct Blocklist {
     single: HashMap<String, String>,
     phrases: Vec<(Vec<String>, String)>,
@@ -755,6 +863,37 @@ mod tests {
         let off = PiiMasker::new(&MaskPii { emails: false, ..MaskPii::default() });
         assert_eq!(run(&off, "a@b.co").0, "a@b.co");
         assert!(!run(&m, "Nothing personal here.").2);
+    }
+
+    #[test]
+    fn c4_removes_lines_and_drops_documents() {
+        let f = C4Filter::recommended();
+        let doc = "Home | About\nThe garden was quiet in the morning. Birds sang in the old oak tree.\n\
+                   Please enable JavaScript to view this site.\nWe water the beds every evening in summer.\n\
+                   This site uses cookies to improve your experience.\nTomatoes need full sun to ripen well.\n\
+                   Our neighbours grow beans and squash as well.\nShare";
+        let (t, rule, changed) = run(&f, doc);
+        assert_eq!(rule, None);
+        assert!(changed);
+        assert!(!t.contains("Home") && !t.contains("JavaScript") && !t.contains("cookies") && !t.contains("Share"));
+        assert!(t.starts_with("The garden was quiet"));
+        assert_eq!(run(&f, "One sentence only. Two sentences here.").1, Some("c4_min_sentences"));
+        assert_eq!(run(&f, "Lorem ipsum dolor sit amet. A. B. C. D. E.").1, Some("c4_lorem_ipsum"));
+        assert_eq!(run(&f, "fn main() { println!(\"hi\"); }").1, Some("c4_curly_bracket"));
+        assert_eq!(run(&f, "menu\nlogin\nsearch").1, Some("c4_no_lines_left"));
+        assert!(ends_with_terminal_punctuation("He said \"stop.\""));
+    }
+
+    #[test]
+    fn fineweb_rules() {
+        let f = FineWebFilter::recommended();
+        let prose = "The committee met on Tuesday to review the budget for the coming year.\nIt agreed to fund the new library and repair the old bridge.";
+        assert_eq!(run(&f, prose).1, None);
+        assert_eq!(run(&f, "Products\nPricing\nBlog\nCareers\nContact us today").1, Some("fineweb_line_punctuation"));
+        let short = "Yes.\nNo.\nMaybe.\nThe long sentence about the weather continues for quite a while here.";
+        assert_eq!(run(&f, short).1, Some("fineweb_short_lines"));
+        let dup = format!("{prose}\n{prose}");
+        assert_eq!(run(&f, &dup).1, Some("fineweb_duplicate_lines"));
     }
 
     #[test]

@@ -85,6 +85,8 @@ off. The recommended values come from DeepMind's Gopher paper (Rae et al., 2021)
 | `character_ratio_filter` | Over non-whitespace characters: `min_alpha_ratio` (0.5), `max_digit_ratio` (0.3), `max_symbol_ratio` (0.3), `max_uppercase_ratio` over letters (0.5), `max_replacement_ratio` for U+FFFD (0.01) |
 | `word_quality_filter` | Mean word length 3–10, ≥ 80% of words contain a letter, ≤ 0.1 `#`/`…` per word, ≤ 90% bullet lines, ≤ 30% lines ending in `…` |
 | `repetition_filter` | Duplicate lines ≤ 0.3, duplicate paragraphs ≤ 0.3, top 2/3/4-gram character share ≤ 0.20/0.18/0.16, characters in duplicated 5/10-grams ≤ 0.15/0.10 |
+| `c4_filter` *(0.2)* | C4 rules (Raffel et al., 2020): removes lines without end punctuation, with fewer than 3 words, with a word over 1,000 characters, mentioning javascript, or about cookies/privacy/terms; then drops documents with fewer than 5 sentences (counted by end punctuation), lorem ipsum, or `{`. Rules: `c4_min_sentences`, `c4_lorem_ipsum`, `c4_curly_bracket`, `c4_no_lines_left` |
+| `fineweb_filter` *(0.2)* | FineWeb rules (Penedo et al., 2024): ≥ 12% of lines end in punctuation, ≤ 67% of lines are 30 characters or shorter, ≤ 1% of characters in repeated lines, ≤ 0.3 newlines per word |
 | `blocklist_filter` | Whole-word / whole-phrase matches of `terms`; more than `max_hits` (0) drops the document |
 
 Measured throughput in a release build (synthetic ~700-character documents, all cores):

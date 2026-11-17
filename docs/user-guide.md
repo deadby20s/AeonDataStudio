@@ -46,7 +46,9 @@ searches for up to 2 seconds and tells you how far it got).
 
 ## 4. Clean it with a pipeline
 
-**Pipelines → New pipeline** starts from a template with every step and recommended settings.
+**Pipelines → New pipeline…** starts from a preset: **Gopher-style** (every common step with
+recommended settings), **FineWeb-style** or **C4-style** (close to those published datasets'
+filtering), or **Minimal** (normalization and exact dedup only).
 
 - **Normalize** steps change text: Unicode normalization, character cleanup (mojibake repair,
   invisible characters), whitespace.

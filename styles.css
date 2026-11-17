@@ -276,6 +276,8 @@ textarea { width: 100%; resize: vertical; padding: 6px 8px; }
 .field.check { flex-direction: row; align-items: flex-start; gap: 8px; }
 .field.check input { width: auto; margin-top: 3px; }
 .hint.block { display: block; }
+.preset-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 6px; }
+.preset-list .list-item { border: 1px solid var(--border); border-radius: var(--radius); height: 100%; gap: 2px; }
 .add-step { display: flex; gap: 8px; max-width: 520px; }
 .try-panel { display: flex; flex-direction: column; gap: 12px; }
 .try-panel h2 { margin: 0; }
@@ -338,7 +340,7 @@ ins.ins, span.ins { background: color-mix(in srgb, var(--ok) 25%, transparent); 
 .sql-layout { display: grid; grid-template-columns: minmax(200px, 260px) 1fr; gap: 12px; align-items: start; }
 .sql-tables { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px; max-height: 70vh; overflow-y: auto; }
 .sql-main { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.sql-editor { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; min-height: 140px; }
+.sql-editor { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; min-height: 140px; font-variant-ligatures: none; }
 .sql-result { overflow: auto; max-height: 60vh; border: 1px solid var(--border); border-radius: var(--radius); }
 .sql-result .table { border: none; border-radius: 0; }
 .sql-result td { max-width: 60ch; white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: top; font-size: 12.5px; }

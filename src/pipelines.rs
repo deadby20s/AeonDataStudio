@@ -1,8 +1,8 @@
 //! Pipelines page: saved recipes, the step editor, and preview / run on a dataset.
 
 use aeon_shared::{
-    DatasetSummary, FieldKind, FieldSpec, PipelinePreview, PipelineSpec, PipelineStep, PipelineSummary, STEP_KINDS,
-    StepCategory, StepConfig,
+    DatasetSummary, FieldKind, FieldSpec, PRESETS, PipelinePreview, PipelineSpec, PipelineStep, PipelineSummary,
+    STEP_KINDS, StepCategory, StepConfig,
 };
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -121,6 +121,7 @@ pub fn PipelinesPage() -> impl IntoView {
 #[component]
 fn PipelineList() -> impl IntoView {
     let ctx = use_app();
+    let show_presets = RwSignal::new(false);
     let list = RwSignal::new(None::<Result<Vec<PipelineSummary>, String>>);
     let error = RwSignal::new(None::<String>);
     let confirm_delete = RwSignal::new(None::<String>);
@@ -153,17 +154,38 @@ fn PipelineList() -> impl IntoView {
     view! {
         <header class="page-header">
             <h1>"Pipelines"</h1>
-            <button
-                class="primary"
-                on:click=move |_| {
-                    let mut d = Draft::from_spec(PipelineSpec::template("Web cleanup"), None);
-                    d.dirty = true;
-                    ctx.draft.set(Some(d));
-                }
-            >
-                "New pipeline"
+            <button class="primary" on:click=move |_| show_presets.update(|s| *s = !*s)>
+                "New pipeline…"
             </button>
         </header>
+        <Show when=move || show_presets.get()>
+            <section class="card">
+                <h2>"Start from"</h2>
+                <ul class="preset-list">
+                    {PRESETS
+                        .iter()
+                        .map(|p| {
+                            let build = p.build;
+                            view! {
+                                <li>
+                                    <button
+                                        class="list-item"
+                                        on:click=move |_| {
+                                            let mut d = Draft::from_spec(build(), None);
+                                            d.dirty = true;
+                                            ctx.draft.set(Some(d));
+                                        }
+                                    >
+                                        <span class="strong">{p.label}</span>
+                                        <span class="muted small">{p.description}</span>
+                                    </button>
+                                </li>
+                            }
+                        })
+                        .collect_view()}
+                </ul>
+            </section>
+        </Show>
         <p class="muted">
             "A pipeline is a list of steps that clean documents (normalize) or remove them (filter). Try it on a sample of a dataset, then run it to create a cleaned dataset. Recipes are saved as TOML files in the workspace's pipelines folder."
         </p>
@@ -176,7 +198,7 @@ fn PipelineList() -> impl IntoView {
                     <div class="empty">
                         <h2>"No saved pipelines"</h2>
                         <p class="muted">
-                            "“New pipeline” starts from a template with every step and recommended settings (Gopher-style filters for web text)."
+                            "“New pipeline…” starts from a ready-made recipe: Gopher-style, FineWeb-style, C4-style or minimal. Every step can then be changed."
                         </p>
                     </div>
                 }
