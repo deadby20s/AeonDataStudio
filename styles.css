@@ -276,6 +276,8 @@ textarea { width: 100%; resize: vertical; padding: 6px 8px; }
 .field.check { flex-direction: row; align-items: flex-start; gap: 8px; }
 .field.check input { width: auto; margin-top: 3px; }
 .hint.block { display: block; }
+.preset-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 6px; }
+.preset-list .list-item { border: 1px solid var(--border); border-radius: var(--radius); height: 100%; gap: 2px; }
 .add-step { display: flex; gap: 8px; max-width: 520px; }
 .try-panel { display: flex; flex-direction: column; gap: 12px; }
 .try-panel h2 { margin: 0; }

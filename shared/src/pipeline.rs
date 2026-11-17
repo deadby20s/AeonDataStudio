@@ -56,6 +56,8 @@ pub enum StepConfig {
     WordQualityFilter(WordQualityFilter),
     RepetitionFilter(RepetitionFilter),
     BlocklistFilter(BlocklistFilter),
+    C4Filter(C4Filter),
+    FineWebFilter(FineWebFilter),
     ExactDedup(ExactDedup),
     NearDedup(NearDedup),
 }
@@ -272,6 +274,77 @@ impl Default for BlocklistFilter {
                 .to_vec(),
             case_sensitive: false,
             max_hits: 0,
+        }
+    }
+}
+
+/// The C4 rules (Raffel et al., 2020) as in datatrove's C4 quality filter. Removes lines, then
+/// may drop the whole document.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct C4Filter {
+    /// Remove lines not ending in . ! ? " or similar.
+    pub drop_lines_without_terminal_punctuation: bool,
+    /// Remove lines with fewer words than this.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_words_per_line: Option<u64>,
+    /// Remove lines containing a word longer than this.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_word_length: Option<u64>,
+    /// Remove lines mentioning "javascript".
+    pub drop_javascript_lines: bool,
+    /// Remove lines about cookies, terms of use and privacy policies.
+    pub drop_policy_lines: bool,
+    /// Drop documents with fewer sentences than this (after removing lines).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_sentences: Option<u64>,
+    pub drop_lorem_ipsum: bool,
+    /// Drop documents containing "{" (usually code).
+    pub drop_curly_brackets: bool,
+}
+
+impl C4Filter {
+    pub fn recommended() -> Self {
+        Self {
+            drop_lines_without_terminal_punctuation: true,
+            min_words_per_line: Some(3),
+            max_word_length: Some(1000),
+            drop_javascript_lines: true,
+            drop_policy_lines: true,
+            min_sentences: Some(5),
+            drop_lorem_ipsum: true,
+            drop_curly_brackets: true,
+        }
+    }
+}
+
+/// FineWeb's own quality rules (Penedo et al., 2024).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FineWebFilter {
+    /// Minimum share of lines ending in punctuation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_line_punctuation_ratio: Option<f64>,
+    pub short_line_length: u64,
+    /// Maximum share of lines with at most `short_line_length` characters.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_short_line_ratio: Option<f64>,
+    /// Maximum share of characters in lines that repeat an earlier line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_duplicate_line_char_ratio: Option<f64>,
+    /// Maximum newlines per word (catches lists).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_newline_word_ratio: Option<f64>,
+}
+
+impl FineWebFilter {
+    pub fn recommended() -> Self {
+        Self {
+            min_line_punctuation_ratio: Some(0.12),
+            short_line_length: 30,
+            max_short_line_ratio: Some(0.67),
+            max_duplicate_line_char_ratio: Some(0.01),
+            max_newline_word_ratio: Some(0.3),
         }
     }
 }
@@ -500,6 +573,37 @@ pub static STEP_KINDS: &[StepKindInfo] = &[
         default: || StepConfig::BlocklistFilter(BlocklistFilter::default()),
     },
     StepKindInfo {
+        kind: "c4_filter",
+        label: "C4 filter",
+        category: StepCategory::Filter,
+        description: "The C4 rules (Raffel et al., 2020): removes lines without end punctuation, very short lines, javascript notices and cookie/policy lines, then drops documents with too few sentences, lorem ipsum or code. Removes lines, so it also changes text. Sentences are counted by end punctuation (C4 used a sentence splitter).",
+        fields: &[
+            field("drop_lines_without_terminal_punctuation", "Remove lines without end punctuation", Bool, "C4: on. FineWeb turned this off."),
+            field("min_words_per_line", "Min words per line", OptCount, "C4: 3"),
+            field("max_word_length", "Max word length", OptCount, "C4: 1000"),
+            field("drop_javascript_lines", "Remove lines mentioning javascript", Bool, ""),
+            field("drop_policy_lines", "Remove cookie / privacy / terms lines", Bool, ""),
+            field("min_sentences", "Min sentences", OptCount, "C4: 5"),
+            field("drop_lorem_ipsum", "Drop lorem ipsum documents", Bool, ""),
+            field("drop_curly_brackets", "Drop documents containing {", Bool, "Usually code."),
+        ],
+        default: || StepConfig::C4Filter(C4Filter::recommended()),
+    },
+    StepKindInfo {
+        kind: "fineweb_filter",
+        label: "FineWeb filter",
+        category: StepCategory::Filter,
+        description: "FineWeb's own rules (Penedo et al., 2024): enough lines ending in punctuation, not too many short lines, little repeated-line text, not list-like.",
+        fields: &[
+            field("min_line_punctuation_ratio", "Min share of lines ending in punctuation", OptRatio, "FineWeb: 0.12"),
+            field("short_line_length", "Short line: at most this many characters", Count, "FineWeb: 30"),
+            field("max_short_line_ratio", "Max share of short lines", OptRatio, "FineWeb: 0.67"),
+            field("max_duplicate_line_char_ratio", "Max share of characters in repeated lines", OptRatio, "FineWeb: 0.01"),
+            field("max_newline_word_ratio", "Max newlines per word", OptRatio, "FineWeb: 0.3"),
+        ],
+        default: || StepConfig::FineWebFilter(FineWebFilter::recommended()),
+    },
+    StepKindInfo {
         kind: "exact_dedup",
         label: "Exact deduplication",
         category: StepCategory::Dedup,
@@ -534,6 +638,8 @@ impl StepConfig {
             StepConfig::WordQualityFilter(_) => "word_quality_filter",
             StepConfig::RepetitionFilter(_) => "repetition_filter",
             StepConfig::BlocklistFilter(_) => "blocklist_filter",
+            StepConfig::C4Filter(_) => "c4_filter",
+            StepConfig::FineWebFilter(_) => "fineweb_filter",
             StepConfig::ExactDedup(_) => "exact_dedup",
             StepConfig::NearDedup(_) => "near_dedup",
         }
@@ -548,13 +654,97 @@ pub fn step_kind(kind: &str) -> Option<&'static StepKindInfo> {
     STEP_KINDS.iter().find(|k| k.kind == kind)
 }
 
+fn on(config: StepConfig) -> PipelineStep {
+    PipelineStep { enabled: true, config }
+}
+
+/// A ready-made recipe offered when creating a pipeline.
+pub struct Preset {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub description: &'static str,
+    pub build: fn() -> PipelineSpec,
+}
+
+pub static PRESETS: &[Preset] = &[
+    Preset {
+        id: "gopher",
+        label: "Gopher-style (recommended start)",
+        description: "Normalization, PII masking, Gopher quality and repetition rules, blocklist, exact and near dedup.",
+        build: || PipelineSpec::template("Web cleanup"),
+    },
+    Preset {
+        id: "fineweb",
+        label: "FineWeb-style",
+        description: "Close to FineWeb: English (≥ 0.65), Gopher repetition and quality, C4 rules without the end-punctuation line rule, FineWeb rules, MinHash dedup (5-grams, 14 × 8), email and IP masking. FineWeb also extracted text with trafilatura and deduplicated per crawl.",
+        build: || PipelineSpec {
+            name: "FineWeb-style".into(),
+            description: Some("Approximates the FineWeb filtering pipeline (Penedo et al., 2024).".into()),
+            steps: vec![
+                on(StepConfig::LanguageFilter(LanguageFilter { keep: vec!["eng".into()], min_confidence: 0.65 })),
+                on(StepConfig::RepetitionFilter(RepetitionFilter::recommended())),
+                on(StepConfig::LengthFilter(LengthFilter { min_words: Some(50), max_words: Some(100_000), ..Default::default() })),
+                on(StepConfig::WordQualityFilter(WordQualityFilter::recommended())),
+                on(StepConfig::C4Filter(C4Filter { drop_lines_without_terminal_punctuation: false, ..C4Filter::recommended() })),
+                on(StepConfig::FineWebFilter(FineWebFilter::recommended())),
+                on(StepConfig::NearDedup(NearDedup::default())),
+                on(StepConfig::MaskPii(MaskPii { emails: true, ip_addresses: true, phone_numbers: false, card_numbers: false })),
+            ],
+        },
+    },
+    Preset {
+        id: "c4",
+        label: "C4-style",
+        description: "Close to C4: English, the C4 line and document rules, exact dedup. C4 also used a bad-words list (add your own terms to a blocklist step) and removed repeated 3-sentence spans across the corpus.",
+        build: || PipelineSpec {
+            name: "C4-style".into(),
+            description: Some("Approximates the C4 cleaning rules (Raffel et al., 2020).".into()),
+            steps: vec![
+                on(StepConfig::NormalizeWhitespace(NormalizeWhitespace::default())),
+                on(StepConfig::LanguageFilter(LanguageFilter { keep: vec!["eng".into()], min_confidence: 0.9 })),
+                on(StepConfig::C4Filter(C4Filter::recommended())),
+                on(StepConfig::ExactDedup(ExactDedup::default())),
+            ],
+        },
+    },
+    Preset {
+        id: "minimal",
+        label: "Minimal",
+        description: "Only normalization and exact dedup: keeps everything else, for data that is already clean.",
+        build: || PipelineSpec {
+            name: "Minimal cleanup".into(),
+            description: Some("Normalization and exact deduplication only.".into()),
+            steps: vec![
+                on(StepConfig::NormalizeUnicode(NormalizeUnicode::default())),
+                on(StepConfig::CleanCharacters(CleanCharacters::default())),
+                on(StepConfig::NormalizeWhitespace(NormalizeWhitespace::default())),
+                on(StepConfig::ExactDedup(ExactDedup::default())),
+            ],
+        },
+    },
+];
+
 impl PipelineSpec {
-    /// A starting point: every step with its default settings.
+    /// The default recipe: Gopher-style quality filtering for web text.
     pub fn template(name: impl Into<String>) -> Self {
+        let kinds = [
+            "normalize_unicode",
+            "clean_characters",
+            "normalize_whitespace",
+            "mask_pii",
+            "length_filter",
+            "language_filter",
+            "character_ratio_filter",
+            "word_quality_filter",
+            "repetition_filter",
+            "blocklist_filter",
+            "exact_dedup",
+            "near_dedup",
+        ];
         Self {
             name: name.into(),
             description: Some("Normalization, Gopher-style quality filters and deduplication for web text.".into()),
-            steps: STEP_KINDS.iter().map(|k| PipelineStep { enabled: true, config: (k.default)() }).collect(),
+            steps: kinds.iter().map(|k| on((step_kind(k).expect("listed").default)())).collect(),
         }
     }
 }
@@ -735,7 +925,13 @@ mod tests {
             assert_eq!(cfg.kind(), info.kind);
             assert!(std::ptr::eq(cfg.info(), info));
         }
-        assert_eq!(STEP_KINDS.len(), 12);
+        assert_eq!(STEP_KINDS.len(), 14);
+        assert_eq!(PipelineSpec::template("t").steps.len(), 12);
+        for p in PRESETS {
+            let spec = (p.build)();
+            let json = serde_json::to_string(&spec).unwrap();
+            assert_eq!(serde_json::from_str::<PipelineSpec>(&json).unwrap(), spec, "{}", p.id);
+        }
     }
 
     #[test]
