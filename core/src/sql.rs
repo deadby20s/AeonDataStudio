@@ -96,6 +96,22 @@ mod engine {
         conn: Connection,
     }
 
+    /// The session used to check queries while the user types, kept between checks and
+    /// reopened when the workspace's tables change.
+    #[derive(Default)]
+    pub struct Checker(std::sync::Mutex<Option<(String, Session)>>);
+
+    impl Checker {
+        pub fn check(&self, tables: &[SqlTable], sql: &str) -> AppResult<aeon_shared::SqlCheck> {
+            let key: String = tables.iter().map(|t| format!("{}={}\n", t.name, t.glob)).collect();
+            let mut slot = self.0.lock().map_err(|_| AppError::Internal("SQL checker lock poisoned".into()))?;
+            if slot.as_ref().is_none_or(|(k, _)| *k != key) {
+                *slot = Some((key, Session::open(tables)?));
+            }
+            Ok(slot.as_ref().expect("just set").1.check(sql))
+        }
+    }
+
     impl Session {
         pub fn open(tables: &[SqlTable]) -> AppResult<Self> {
             let conn = Connection::open_in_memory().map_err(err)?;
@@ -107,6 +123,24 @@ mod engine {
                     .map_err(err)?;
             }
             Ok(Self { conn })
+        }
+
+        /// Parses and binds `sql` without running it, so syntax errors, unknown tables or
+        /// columns and type errors are found while typing.
+        pub fn check(&self, sql: &str) -> aeon_shared::SqlCheck {
+            let sql = sql.trim();
+            let sql = sql.strip_suffix(';').unwrap_or(sql).trim_end();
+            if sql.is_empty() {
+                return aeon_shared::SqlCheck::default();
+            }
+            match self.conn.prepare(sql) {
+                Ok(_) => aeon_shared::SqlCheck::default(),
+                Err(e) => {
+                    let message = e.to_string();
+                    let (line, column) = super::error_position(sql, &message);
+                    aeon_shared::SqlCheck { error: Some(super::error_summary(&message)), line, column }
+                }
+            }
         }
 
         pub fn interrupt_handle(&self) -> Arc<duckdb::InterruptHandle> {
@@ -166,7 +200,62 @@ mod engine {
 }
 
 #[cfg(feature = "sql")]
-pub use engine::Session;
+pub use engine::{Checker, Session};
+
+/// Without DuckDB there is nothing to check against.
+#[cfg(not(feature = "sql"))]
+#[derive(Default)]
+pub struct Checker;
+
+#[cfg(not(feature = "sql"))]
+impl Checker {
+    pub fn check(&self, _tables: &[SqlTable], _sql: &str) -> AppResult<aeon_shared::SqlCheck> {
+        Ok(aeon_shared::SqlCheck::default())
+    }
+}
+
+/// The message without DuckDB's `LINE n: …` excerpt and caret (the editor marks the place).
+pub fn error_summary(message: &str) -> String {
+    let main = message.split("\nLINE ").next().unwrap_or(message);
+    main.trim().to_string()
+}
+
+/// Where DuckDB's error points: it ends messages with `LINE n: <excerpt>` and a line with a
+/// caret under the error. The excerpt may be shortened with `...` around it, so it is looked
+/// up in the source line to find the column.
+pub fn error_position(sql: &str, message: &str) -> (Option<u32>, Option<u32>) {
+    let lines: Vec<&str> = message.lines().collect();
+    let Some(i) = lines.iter().position(|l| l.starts_with("LINE ")) else {
+        return (None, None);
+    };
+    let excerpt_line = lines[i];
+    let Some((head, excerpt)) = excerpt_line.split_once(": ") else {
+        return (None, None);
+    };
+    let Ok(line_no) = head.trim_start_matches("LINE ").trim().parse::<u32>() else {
+        return (None, None);
+    };
+    let caret = lines.get(i + 1).and_then(|l| l.find('^'));
+    let Some(caret) = caret else {
+        return (Some(line_no), None);
+    };
+    // Characters into the excerpt (the caret line is padded to line up with the excerpt line).
+    let prefix = head.chars().count() + 2;
+    let caret_chars = lines[i + 1][..caret].chars().count();
+    let Some(into_excerpt) = caret_chars.checked_sub(prefix) else {
+        return (Some(line_no), None);
+    };
+    let leading_dots = if excerpt.starts_with("...") { 3 } else { 0 };
+    let core = excerpt.trim_start_matches("...").trim_end_matches("...");
+    let source_line = sql.lines().nth(line_no.saturating_sub(1) as usize).unwrap_or("");
+    let base = if leading_dots == 0 {
+        Some(0)
+    } else {
+        source_line.find(core).map(|b| source_line[..b].chars().count())
+    };
+    let column = base.and_then(|b| (b + into_excerpt).checked_sub(leading_dots)).map(|c| c as u32);
+    (Some(line_no), column)
+}
 
 pub const AVAILABLE: bool = cfg!(feature = "sql");
 
@@ -186,6 +275,25 @@ pub fn run(
 #[cfg(not(feature = "sql"))]
 pub fn run(_ws: &Workspace, _sql: &str, _limit: usize, _on_interrupt: impl FnOnce(())) -> AppResult<SqlResult> {
     Err(crate::error::AppError::InvalidInput("This build does not include the SQL explorer.".into()))
+}
+
+#[cfg(test)]
+mod position_tests {
+    use super::*;
+
+    #[test]
+    fn finds_the_error_column_even_in_shortened_excerpts() {
+        let msg = "Parser Error: syntax error at or near \"FORM\"\n\nLINE 1: SELECT * FORM t\n                 ^";
+        assert_eq!(error_position("SELECT * FORM t", msg), (Some(1), Some(9)));
+        assert_eq!(error_summary(msg), "Parser Error: syntax error at or near \"FORM\"");
+        let long = format!("SELECT {}a , FORM t", "a, ".repeat(40));
+        let col = long.find("FORM").unwrap();
+        let excerpt = "...a, a, a, a , FORM t";
+        let caret = " ".repeat("LINE 1: ".len() + excerpt.find("FORM").unwrap()) + "^";
+        let msg = format!("Parser Error: x\n\nLINE 1: {excerpt}\n{caret}");
+        assert_eq!(error_position(&long, &msg), (Some(1), Some(col as u32)));
+        assert_eq!(error_position("x", "Binder Error: no position"), (None, None));
+    }
 }
 
 #[cfg(all(test, feature = "sql"))]
@@ -231,5 +339,20 @@ mod tests {
         assert!(r.truncated && r.rows.len() == 10);
         assert!(run(&ws, "SELECT * FROM nope", 10, |_| {}).is_err());
         assert!(run(&ws, "SET threads TO 1", 10, |_| {}).unwrap().message.is_some());
+
+        // Checking parses and binds without running.
+        let checker = Checker::default();
+        let ok = checker.check(&t, "SELECT id, meta->>'lang' FROM ds_my_web_data;").unwrap();
+        assert_eq!(ok.error, None);
+        let typo = checker.check(&t, "SELECT id,\n  txet\nFROM ds_my_web_data").unwrap();
+        assert!(typo.error.as_deref().unwrap().contains("txet"), "{typo:?}");
+        assert_eq!(typo.line, Some(2));
+        assert_eq!(typo.column, Some(2));
+        let syntax = checker.check(&t, "SELECT * FORM ds_my_web_data").unwrap();
+        // DuckDB reads FORM as an alias, so the error is at the table name.
+        assert_eq!((syntax.line, syntax.column), (Some(1), Some(14)), "{syntax:?}");
+        let table = checker.check(&t, "SELECT * FROM nope").unwrap();
+        assert!(table.error.unwrap().contains("nope"));
+        assert_eq!(checker.check(&t, "  ").unwrap(), aeon_shared::SqlCheck::default());
     }
 }

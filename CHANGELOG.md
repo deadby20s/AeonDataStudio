@@ -26,6 +26,13 @@ language models. Pick your colors.
   - Requests are retried, and you choose what happens when one still fails.
 - **Data recipes**: ready-made LLM pipelines for educational-quality filtering, WRAP-style
   rephrasing, synthetic Q&A and summaries.
+- **SQL editor**:
+  - Syntax highlighting.
+  - Live checking: DuckDB parses and binds the query while you type, without running it, and
+    the editor underlines the error.
+  - A snippets menu with 19 queries for pretraining data: length statistics, duplicate texts,
+    leftover HTML, top domains, removals per rule, and more.
+  - Tab indents.
 - **Themes**: System, Light, Dark, Midnight, Forest, Ember, Paper and High contrast, plus custom
   themes with a color editor. Themes can be shared as JSON.
 

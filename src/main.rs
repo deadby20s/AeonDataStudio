@@ -10,6 +10,7 @@ mod pipelines;
 mod runs;
 mod settings;
 mod sql;
+mod sql_editor;
 mod theme;
 
 use app::App;

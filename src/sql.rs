@@ -7,17 +7,9 @@ use leptos::task::spawn_local;
 use crate::api;
 use crate::app::use_app;
 use crate::format;
+use crate::sql_editor::SqlEditor;
 
 const LIMIT: u64 = 1000;
-
-fn examples(first_dataset: &str) -> Vec<(&'static str, String)> {
-    vec![
-        ("Documents per source", format!("SELECT source, count(*) AS docs, sum(length(text)) AS chars\nFROM {first_dataset}\nGROUP BY source\nORDER BY docs DESC;")),
-        ("Length distribution", format!("SELECT (length(text) // 500) * 500 AS chars_from, count(*) AS docs\nFROM {first_dataset}\nGROUP BY 1\nORDER BY 1;")),
-        ("Filter by metadata", format!("SELECT id, meta->>'url' AS url, left(text, 120) AS start\nFROM {first_dataset}\nWHERE meta->>'lang' = 'en'\nLIMIT 50;")),
-        ("Search text", format!("SELECT id, left(text, 200) AS start\nFROM {first_dataset}\nWHERE text ILIKE '%climate%'\nLIMIT 100;")),
-    ]
-}
 
 #[component]
 pub fn SqlPage() -> impl IntoView {
@@ -36,6 +28,8 @@ pub fn SqlPage() -> impl IntoView {
                 }
         tables.set(Some(t));
     });
+
+    let table_list = Signal::derive(move || tables.with(|t| t.as_ref().and_then(|r| r.as_ref().ok()).cloned().unwrap_or_default()));
 
     let run = move || {
         if running.get_untracked() {
@@ -78,7 +72,7 @@ pub fn SqlPage() -> impl IntoView {
                                         <li>
                                             <button
                                                 class="list-item"
-                                                title="Insert a query for this table"
+                                                title="Start a query on this table"
                                                 on:click=move |_| sql.set(format!("SELECT *\nFROM {name}\nLIMIT 100;"))
                                             >
                                                 <span class="mono small">{t.name.clone()}</span>
@@ -88,34 +82,11 @@ pub fn SqlPage() -> impl IntoView {
                                     }
                                 }).collect_view()}
                             </ul>
-                            {
-                                let first = list.iter().find(|t| t.kind == "dataset").map(|t| t.name.clone());
-                                first.map(|f| view! {
-                                    <div class="small-heading">"Examples"</div>
-                                    <ul class="plain-list">
-                                        {examples(&f).into_iter().map(|(label, q)| view! {
-                                            <li><button class="list-item small" on:click=move |_| sql.set(q.clone())>{label}</button></li>
-                                        }).collect_view()}
-                                    </ul>
-                                })
-                            }
                         }.into_any(),
                     }}
                 </div>
                 <div class="sql-main">
-                    <textarea
-                        class="sql-editor"
-                        aria-label="SQL query"
-                        spellcheck="false"
-                        prop:value=move || sql.get()
-                        on:input=move |ev| sql.set(event_target_value(&ev))
-                        on:keydown=move |ev| {
-                            if ev.key() == "Enter" && (ev.ctrl_key() || ev.meta_key()) {
-                                ev.prevent_default();
-                                run();
-                            }
-                        }
-                    ></textarea>
+                    <SqlEditor sql=sql tables=table_list on_run=run/>
                     <div class="row-buttons">
                         <button class="primary" disabled=move || running.get() on:click=move |_| run()>
                             {move || if running.get() { "Running…" } else { "Run (Ctrl+Enter)" }}

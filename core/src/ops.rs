@@ -337,6 +337,12 @@ impl AppState {
         }
     }
 
+    /// Parses and binds a query without running it (for live checking in the editor).
+    pub fn check_sql(&self, sql: &str) -> AppResult<aeon_shared::SqlCheck> {
+        let tables = crate::sql::tables(&*self.workspace()?)?;
+        self.sql_checker.check(&tables, sql)
+    }
+
     pub fn cancel_sql(&self) {
         if let Ok(s) = self.sql_cancel.lock()
             && let Some(cancel) = s.as_ref()

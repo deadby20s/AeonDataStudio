@@ -117,6 +117,7 @@ pub fn run() {
             commands::sql_tables,
             commands::run_sql,
             commands::cancel_sql,
+            commands::check_sql,
             commands::list_jobs,
             commands::cancel_job,
             commands::clear_finished_jobs,
