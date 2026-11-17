@@ -3,7 +3,7 @@ name = "aeon-core"
 version = "0.3.0"
 description = "AeonDataStudio engine: workspaces, import, pipelines, export (no UI)"
 edition = "2024"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 aeon-shared = { path = "../shared" }
