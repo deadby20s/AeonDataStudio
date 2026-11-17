@@ -81,6 +81,9 @@ pub struct ExportRequest {
     pub tokenizer: Option<TokenizerChoice>,
     /// Tokens only: append the end-of-text token after every document.
     pub append_eos: bool,
+    /// Folder to create the export in. `None` = the workspace's `exports/` folder.
+    #[serde(default)]
+    pub output_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -121,9 +124,13 @@ pub struct ExportManifest {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExportSummary {
-    /// Folder name inside `exports/`.
+    /// Folder name of the export.
     pub folder: String,
+    /// Full path; identifies the export for opening or removing it.
     pub path: String,
+    /// Created outside the workspace's `exports/` folder.
+    #[serde(default)]
+    pub external: bool,
     pub name: String,
     pub created_at_ms: i64,
     pub format: ExportFormat,

@@ -290,8 +290,8 @@ struct ExportArgs<'a> {
 }
 
 #[derive(Serialize)]
-struct FolderArg<'a> {
-    folder: &'a str,
+struct PathOnlyArg<'a> {
+    path: &'a str,
 }
 
 #[derive(Serialize)]
@@ -316,12 +316,16 @@ pub async fn list_exports() -> ApiResult<Vec<ExportSummary>> {
     call("list_exports", &NoArgs {}).await
 }
 
-pub async fn delete_export(folder: &str) -> ApiResult<()> {
-    call("delete_export", &FolderArg { folder }).await
+pub async fn delete_export(path: &str) -> ApiResult<()> {
+    call("delete_export", &PathOnlyArg { path }).await
 }
 
-pub async fn open_export_folder(folder: &str) -> ApiResult<()> {
-    call("open_export_folder", &FolderArg { folder }).await
+pub async fn open_export_folder(path: &str) -> ApiResult<()> {
+    call("open_export_folder", &PathOnlyArg { path }).await
+}
+
+pub async fn pick_export_folder() -> ApiResult<Option<String>> {
+    call("pick_export_folder", &NoArgs {}).await
 }
 
 pub async fn pick_tokenizer_file() -> ApiResult<Option<String>> {

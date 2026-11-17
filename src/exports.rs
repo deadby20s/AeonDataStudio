@@ -84,12 +84,14 @@ pub fn ExportsPage() -> impl IntoView {
                     </thead>
                     <tbody>
                         {items.into_iter().map(|e| {
-                            let (f_open, f_del, f_confirm, f_cmp) = (e.folder.clone(), e.folder.clone(), e.folder.clone(), e.folder.clone());
+                            let (f_open, f_del, f_confirm, f_cmp) = (e.path.clone(), e.path.clone(), e.path.clone(), e.path.clone());
+                            let external = e.external;
+                            let location = if external { e.path.clone() } else { format!("exports/{}", e.folder) };
                             view! {
                                 <tr>
                                     <td>
                                         <div class="strong">{e.name}</div>
-                                        <div class="muted small">"from " {e.dataset_name} <span class="mono">" · exports/" {e.folder.clone()}</span></div>
+                                        <div class="muted small">"from " {e.dataset_name} <span class="mono">" · " {location}</span>{external.then_some(" (outside the workspace)")}</div>
                                     </td>
                                     <td>{e.format.label()}</td>
                                     <td class="num">{format::count(e.docs)}</td>
@@ -110,7 +112,9 @@ pub fn ExportsPage() -> impl IntoView {
                                                 let f = f_del.clone();
                                                 view! {
                                                     <button class="small-button" on:click=move |_| confirm.set(None)>"Keep"</button>
-                                                    <button class="small-button danger" on:click=move |_| delete(f.clone())>"Delete files"</button>
+                                                    <button class="small-button danger" on:click=move |_| delete(f.clone())>
+                                                        {if external { "Remove from list" } else { "Delete files" }}
+                                                    </button>
                                                 }
                                             }
                                         </Show>
@@ -145,9 +149,19 @@ pub fn ExportForm(dataset_id: String, dataset_name: String, on_close: Callback<(
     let tok = RwSignal::new(TokChoice::Tiktoken("o200k_base"));
     let hf_path = RwSignal::new(None::<String>);
     let append_eos = RwSignal::new(true);
+    let output_dir = RwSignal::new(None::<String>);
     let error = RwSignal::new(None::<String>);
     let job = RwSignal::new(None::<u64>);
     let dataset_id = StoredValue::new(dataset_id);
+    let pick_output = move |_| {
+        spawn_local(async move {
+            match api::pick_export_folder().await {
+                Ok(Some(p)) => output_dir.set(Some(p)),
+                Ok(None) => {}
+                Err(e) => error.set(Some(e.to_string())),
+            }
+        });
+    };
 
     let pick_tokenizer = move |_| {
         spawn_local(async move {
@@ -185,6 +199,7 @@ pub fn ExportForm(dataset_id: String, dataset_name: String, on_close: Callback<(
             include_meta: include_meta.get_untracked(),
             tokenizer,
             append_eos: append_eos.get_untracked(),
+            output_dir: output_dir.get_untracked(),
         };
         spawn_local(async move {
             match api::start_export(&request).await {
@@ -285,6 +300,19 @@ pub fn ExportForm(dataset_id: String, dataset_name: String, on_close: Callback<(
                             <span>"Append end-of-text token" <span class="hint block">"After every document, so a training loop can tell documents apart."</span></span>
                         </label>
                     </Show>
+                </div>
+                <div class="field">
+                    <span class="label">"Save to"</span>
+                    <div class="row-buttons">
+                        <span class="mono small">
+                            {move || output_dir.get().unwrap_or_else(|| "the workspace's exports folder".into())}
+                        </span>
+                        <button type="button" class="small-button" on:click=pick_output>"Choose folder…"</button>
+                        <Show when=move || output_dir.get().is_some()>
+                            <button type="button" class="small-button" on:click=move |_| output_dir.set(None)>"Use workspace"</button>
+                        </Show>
+                    </div>
+                    <span class="hint">"A folder named after the export is created there. Exports outside the workspace are listed on the Exports page too."</span>
                 </div>
                 <Show when=move || fmt.get() == ExportFormat::Tokens>
                     <p class="muted small">

@@ -86,6 +86,7 @@ pub fn run() {
             commands::delete_export,
             commands::open_export_folder,
             commands::pick_tokenizer_file,
+            commands::pick_export_folder,
             commands::start_mix,
             commands::preview_import,
             commands::create_demo_dataset,

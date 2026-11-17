@@ -362,24 +362,34 @@ pub async fn list_exports(state: State<'_, AppState>) -> AppResult<Vec<ExportSum
     blocking(move || export::list(&ws)).await
 }
 
+/// Deletes an export in the workspace, or forgets one made elsewhere (files kept).
 #[tauri::command]
-pub async fn delete_export(folder: String, state: State<'_, AppState>) -> AppResult<()> {
+pub async fn delete_export(path: String, state: State<'_, AppState>) -> AppResult<()> {
     let ws = state.workspace()?;
-    blocking(move || export::delete(&ws, &folder)).await
+    blocking(move || export::delete(&ws, &path)).await
 }
 
 /// Opens an export folder in the system file manager.
 #[tauri::command]
-pub fn open_export_folder(folder: String, app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+pub fn open_export_folder(path: String, app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
     use tauri_plugin_opener::OpenerExt;
     let ws = state.workspace()?;
-    let dir = export::export_dir(&ws, &folder)?;
+    let (dir, _) = export::resolve(&ws, &path)?;
     if !dir.is_dir() {
-        return Err(AppError::InvalidInput(format!("exports/{folder} does not exist")));
+        return Err(AppError::InvalidInput(format!("{} does not exist", dir.display())));
     }
     app.opener()
         .open_path(dir.display().to_string(), None::<&str>)
         .map_err(|e| AppError::Internal(format!("Could not open the folder: {e}")))
+}
+
+#[tauri::command]
+pub async fn pick_export_folder(app: AppHandle) -> AppResult<Option<String>> {
+    let picked = blocking(move || Ok(app.dialog().file().set_title("Choose where to save the export").blocking_pick_folder()))
+        .await?;
+    picked
+        .map(|p| p.into_path().map(|p| p.display().to_string()).map_err(|e| AppError::InvalidInput(e.to_string())))
+        .transpose()
 }
 
 #[tauri::command]
