@@ -172,8 +172,47 @@ fn fail(msg: impl std::fmt::Display) -> ExitCode {
     ExitCode::FAILURE
 }
 
+/// Shown when `aeon` is double-clicked: a console window that closed straight away after the
+/// help text looked like a broken installer.
+const DOUBLE_CLICK_MESSAGE: &str = "This is aeon, the AeonDataStudio command-line tool. It runs in a terminal; it is not the app
+and not the app installer.
+
+  - To install the app, download AeonDataStudio_<version>_x64-setup.exe from
+    https://github.com/deadby20s/AeonDataStudio/releases
+  - If the app is installed, start AeonDataStudio from the Start menu.
+  - To use this tool, open PowerShell or Command Prompt and run:  aeon --help
+";
+
+/// True when this process is alone in its console window, which on Windows means it was
+/// started by double-clicking (a terminal would share the console with its shell).
+#[cfg(windows)]
+fn started_by_double_click() -> bool {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetConsoleProcessList(list: *mut u32, count: u32) -> u32;
+    }
+    let mut ids = [0u32; 4];
+    // SAFETY: the buffer is valid for `ids.len()` entries; the call only writes into it.
+    let attached = unsafe { GetConsoleProcessList(ids.as_mut_ptr(), ids.len() as u32) };
+    attached == 1
+}
+
+#[cfg(not(windows))]
+fn started_by_double_click() -> bool {
+    false
+}
+
 /// Parses the command line and runs it.
 pub fn run() -> ExitCode {
+    if std::env::args_os().len() == 1 && started_by_double_click() {
+        println!("AeonDataStudio command-line tool {}
+", env!("CARGO_PKG_VERSION"));
+        print!("{DOUBLE_CLICK_MESSAGE}
+Press Enter to close.");
+        let _ = std::io::stdout().flush();
+        let _ = std::io::stdin().read_line(&mut String::new());
+        return ExitCode::SUCCESS;
+    }
     let cli = Cli::parse();
     let quiet_progress = matches!(cli.command, Cmd::Mcp | Cmd::Serve { .. });
     let events: Arc<dyn JobEvents> =

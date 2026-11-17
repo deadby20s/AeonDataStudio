@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- The standalone CLI downloads on the release page are now named `aeon-cli-<platform>`, so they
+  aren't mistaken for the app installer (`AeonDataStudio_…-setup.exe`).
+- Double-clicking `aeon` on Windows no longer flashes a console window that closes at once: it
+  explains that it is the command-line tool, says where the app installer is, and waits for
+  Enter.
+
 ## 0.3.0 alpha — 2026-11-17
 
 Use the studio from scripts, servers and AI assistants. Extend it with plugins and

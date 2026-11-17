@@ -18,7 +18,7 @@ same engine (`aeon-core`) and work on the same workspace folders as the app:
 | macOS | `/Applications/AeonDataStudio.app/Contents/MacOS/aeon` |
 | Linux (`.deb` / `.rpm`) | `/usr/bin/aeon` |
 
-Release pages also have it on its own (`aeon-windows-x64.exe`, `aeon-linux-x64`, …). To build
+Release pages also have it on its own (`aeon-cli-windows-x64.exe`, `aeon-cli-linux-x64`, …). These are the command-line tool only; the app installers are the `AeonDataStudio_…` files. To build
 it from source, run `cargo build --release --bin aeon` (the binary ends up in
 `target/release/`).
 
