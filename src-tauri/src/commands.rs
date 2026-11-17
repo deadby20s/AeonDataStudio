@@ -533,10 +533,10 @@ pub async fn run_sql(sql: String, limit: u64, state: State<'_, AppState>) -> App
             })
         });
         // Register the interrupt handle as soon as the session exists.
-        if let Ok(handle) = tokio_free_recv(rx).await {
-            if let Ok(mut s) = state.sql_cancel.lock() {
-                *s = Some(Box::new(move || handle.interrupt()));
-            }
+        if let Ok(handle) = tokio_free_recv(rx).await
+            && let Ok(mut s) = state.sql_cancel.lock()
+        {
+            *s = Some(Box::new(move || handle.interrupt()));
         }
         let result = task.await.map_err(|e| AppError::Internal(e.to_string()))?;
         if let Ok(mut s) = state.sql_cancel.lock() {
