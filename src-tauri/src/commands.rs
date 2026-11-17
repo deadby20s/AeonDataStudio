@@ -23,6 +23,7 @@ pub fn get_app_info(app: AppHandle, state: State<'_, AppState>) -> AppResult<App
     let workspace = state.current_workspace().map(|w| w.info()).transpose()?;
     Ok(AppInfo {
         updates_configured: crate::updates::configured(),
+        sql_available: crate::sql::AVAILABLE,
         version: app.package_info().version.to_string(),
         workspace,
         recent_workspaces: state.recent_workspaces(),
@@ -227,22 +228,20 @@ pub async fn preview_pipeline(
     let dir = state.workspace()?.dataset_dir(&dataset_id)?;
     // A new preview replaces (cancels) any preview still running.
     let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    if let Ok(mut slot) = state.preview_cancel.lock() {
-        if let Some(old) = slot.replace(flag.clone()) {
+    if let Ok(mut slot) = state.preview_cancel.lock()
+        && let Some(old) = slot.replace(flag.clone()) {
             old.store(true, std::sync::atomic::Ordering::Relaxed);
         }
-    }
     blocking(move || pipeline::preview(&spec, &DatasetReader::open(&dir)?, sample_size, &flag)).await
 }
 
 /// Stops the running preview; it returns a "Cancelled" error.
 #[tauri::command]
 pub fn cancel_preview(state: State<'_, AppState>) -> AppResult<()> {
-    if let Ok(slot) = state.preview_cancel.lock() {
-        if let Some(flag) = slot.as_ref() {
+    if let Ok(slot) = state.preview_cancel.lock()
+        && let Some(flag) = slot.as_ref() {
             flag.store(true, std::sync::atomic::Ordering::Relaxed);
         }
-    }
     Ok(())
 }
 
@@ -508,4 +507,63 @@ pub async fn check_for_update(app: AppHandle) -> AppResult<Option<aeon_shared::U
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> AppResult<()> {
     crate::updates::install(&app).await
+}
+
+// ---------------------------------------------------------------------------------------------
+// SQL explorer
+// ---------------------------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn sql_tables(state: State<'_, AppState>) -> AppResult<Vec<aeon_shared::SqlTable>> {
+    let ws = state.workspace()?;
+    blocking(move || crate::sql::tables(&ws)).await
+}
+
+/// Runs a SQL query over the workspace's datasets and run logs (at most 1,000 rows returned).
+#[tauri::command]
+pub async fn run_sql(sql: String, limit: u64, state: State<'_, AppState>) -> AppResult<aeon_shared::SqlResult> {
+    let ws = state.workspace()?;
+    let limit = limit.clamp(1, 1000) as usize;
+    #[cfg(feature = "sql")]
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let task = tauri::async_runtime::spawn_blocking(move || {
+            crate::sql::run(&ws, &sql, limit, |handle| {
+                let _ = tx.send(handle);
+            })
+        });
+        // Register the interrupt handle as soon as the session exists.
+        if let Ok(handle) = tokio_free_recv(rx).await {
+            if let Ok(mut s) = state.sql_cancel.lock() {
+                *s = Some(Box::new(move || handle.interrupt()));
+            }
+        }
+        let result = task.await.map_err(|e| AppError::Internal(e.to_string()))?;
+        if let Ok(mut s) = state.sql_cancel.lock() {
+            *s = None;
+        }
+        result.map_err(|e| match e {
+            AppError::InvalidInput(m) if m.contains("INTERRUPT") || m.contains("nterrupt") => AppError::Cancelled,
+            other => other,
+        })
+    }
+    #[cfg(not(feature = "sql"))]
+    {
+        blocking(move || crate::sql::run(&ws, &sql, limit, |_| {})).await
+    }
+}
+
+/// Waits for the interrupt handle without blocking the async runtime.
+#[cfg(feature = "sql")]
+async fn tokio_free_recv<T: Send + 'static>(rx: std::sync::mpsc::Receiver<T>) -> Result<T, ()> {
+    tauri::async_runtime::spawn_blocking(move || rx.recv().map_err(|_| ())).await.map_err(|_| ())?
+}
+
+#[tauri::command]
+pub fn cancel_sql(state: State<'_, AppState>) -> AppResult<()> {
+    if let Ok(s) = state.sql_cancel.lock()
+        && let Some(cancel) = s.as_ref() {
+            cancel();
+        }
+    Ok(())
 }

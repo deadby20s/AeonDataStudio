@@ -366,6 +366,24 @@ pub async fn install_update() -> ApiResult<()> {
     call("install_update", &NoArgs {}).await
 }
 
+#[derive(Serialize)]
+struct SqlArgs<'a> {
+    sql: &'a str,
+    limit: u64,
+}
+
+pub async fn sql_tables() -> ApiResult<Vec<aeon_shared::SqlTable>> {
+    call("sql_tables", &NoArgs {}).await
+}
+
+pub async fn run_sql(sql: &str, limit: u64) -> ApiResult<aeon_shared::SqlResult> {
+    call("run_sql", &SqlArgs { sql, limit }).await
+}
+
+pub async fn cancel_sql() -> ApiResult<()> {
+    call("cancel_sql", &NoArgs {}).await
+}
+
 pub async fn list_jobs() -> ApiResult<Vec<JobStatus>> {
     call("list_jobs", &NoArgs {}).await
 }

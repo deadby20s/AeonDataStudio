@@ -8,6 +8,7 @@ mod import;
 mod jobs;
 mod mix;
 mod pipeline;
+mod sql;
 mod state;
 mod updates;
 mod workspace;
@@ -94,6 +95,9 @@ pub fn run() {
             commands::open_log_folder,
             commands::check_for_update,
             commands::install_update,
+            commands::sql_tables,
+            commands::run_sql,
+            commands::cancel_sql,
             commands::list_jobs,
             commands::cancel_job,
             commands::clear_finished_jobs,

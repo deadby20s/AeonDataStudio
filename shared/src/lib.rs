@@ -21,9 +21,35 @@ pub struct AppInfo {
     /// Whether this build can update itself (it was built with the update signing key).
     #[serde(default)]
     pub updates_configured: bool,
+    /// Whether this build includes the SQL explorer.
+    #[serde(default)]
+    pub sql_available: bool,
     pub workspace: Option<WorkspaceInfo>,
     /// Recently opened workspace folders, most recent first.
     pub recent_workspaces: Vec<String>,
+}
+
+/// A view the SQL explorer offers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SqlTable {
+    pub name: String,
+    /// "dataset" or "removed".
+    pub kind: String,
+    pub description: String,
+    /// Parquet files behind the view.
+    pub glob: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SqlResult {
+    pub columns: Vec<String>,
+    /// Values as text; `None` is SQL NULL.
+    pub rows: Vec<Vec<Option<String>>>,
+    /// More rows exist than were returned.
+    pub truncated: bool,
+    pub elapsed_ms: u64,
+    /// For statements that return no rows.
+    pub message: Option<String>,
 }
 
 /// An available update.

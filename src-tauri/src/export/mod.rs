@@ -485,7 +485,7 @@ pub fn resolve(ws: &Workspace, path: &str) -> AppResult<(PathBuf, bool)> {
         let folder = p.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
         return Ok((export_dir(ws, &folder)?, false));
     }
-    if external_list(ws).iter().any(|e| *e == p) {
+    if external_list(ws).contains(&p) {
         return Ok((p, true));
     }
     Err(AppError::InvalidInput(format!("{path} is not an export of this workspace")))

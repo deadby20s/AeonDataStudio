@@ -334,7 +334,18 @@ ins.ins, span.ins { background: color-mix(in srgb, var(--ok) 25%, transparent); 
 .sample-docs .doc-text { padding: 2px 0; font-size: 12.5px; }
 .weight-input { width: 90px; text-align: right; }
 
+/* SQL explorer */
+.sql-layout { display: grid; grid-template-columns: minmax(200px, 260px) 1fr; gap: 12px; align-items: start; }
+.sql-tables { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px; max-height: 70vh; overflow-y: auto; }
+.sql-main { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.sql-editor { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; min-height: 140px; }
+.sql-result { overflow: auto; max-height: 60vh; border: 1px solid var(--border); border-radius: var(--radius); }
+.sql-result .table { border: none; border-radius: 0; }
+.sql-result td { max-width: 60ch; white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: top; font-size: 12.5px; }
+.null { color: var(--muted); font-style: italic; }
+
 @media (max-width: 720px) {
+  .sql-layout { grid-template-columns: 1fr; }
   .changes { grid-template-columns: 1fr; }
   .reason-grid { grid-template-columns: 1fr; }
   .diff { grid-template-columns: 1fr; }

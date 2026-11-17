@@ -267,11 +267,10 @@ impl PiiMasker {
 impl Step for PiiMasker {
     fn apply(&self, text: &mut String) -> Verdict {
         let mut out = std::borrow::Cow::Borrowed(text.as_str());
-        if let Some(re) = &self.email {
-            if let std::borrow::Cow::Owned(s) = re.replace_all(&out, "<EMAIL>") {
+        if let Some(re) = &self.email
+            && let std::borrow::Cow::Owned(s) = re.replace_all(&out, "<EMAIL>") {
                 out = std::borrow::Cow::Owned(s);
             }
-        }
         // Cards before phones: a card number also looks like a long phone number.
         if let Some(re) = &self.card {
             let replaced = re.replace_all(&out, |c: &regex::Captures| {
@@ -282,16 +281,14 @@ impl Step for PiiMasker {
                 out = std::borrow::Cow::Owned(replaced.into_owned());
             }
         }
-        if let Some(re) = &self.ipv6 {
-            if let std::borrow::Cow::Owned(s) = re.replace_all(&out, "<IP>") {
+        if let Some(re) = &self.ipv6
+            && let std::borrow::Cow::Owned(s) = re.replace_all(&out, "<IP>") {
                 out = std::borrow::Cow::Owned(s);
             }
-        }
-        if let Some(re) = &self.ipv4 {
-            if let std::borrow::Cow::Owned(s) = re.replace_all(&out, "<IP>") {
+        if let Some(re) = &self.ipv4
+            && let std::borrow::Cow::Owned(s) = re.replace_all(&out, "<IP>") {
                 out = std::borrow::Cow::Owned(s);
             }
-        }
         if let Some(re) = &self.phone {
             let replaced = re.replace_all(&out, |c: &regex::Captures| {
                 let m = &c[0];
