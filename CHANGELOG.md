@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Changed
+- Dual-licensed: AeonDataStudio is now available under the MIT license **or** the Apache
+  License 2.0, at your option (`LICENSE-MIT`, `LICENSE-APACHE`). Apache-2.0 adds an explicit
+  patent grant. Earlier releases stay MIT.
 - The standalone CLI downloads on the release page are now named `aeon-cli-<platform>`, so they
   aren't mistaken for the app installer (`AeonDataStudio_…-setup.exe`).
 - Double-clicking `aeon` on Windows no longer flashes a console window that closes at once: it

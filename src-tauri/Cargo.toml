@@ -3,7 +3,7 @@ name = "aeondatastudio"
 version = "0.3.0"
 description = "Personal data studio for preparing AI pretraining data"
 edition = "2024"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 # Two binaries: the app, and the aeon CLI (src/bin/aeon.rs), which the installers include.
 default-run = "aeondatastudio"
 

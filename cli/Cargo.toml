@@ -3,7 +3,7 @@ name = "aeon-cli"
 version = "0.3.0"
 description = "The aeon command-line tool (built as a binary of the desktop app package): run pipelines, serve the local API and the MCP server"
 edition = "2024"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 
 [lib]
 name = "aeon_cli"
