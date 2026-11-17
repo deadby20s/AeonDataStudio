@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use aeon_shared::{
-    BlocklistFilter, CharacterRatioFilter, CleanCharacters, LanguageFilter, LengthFilter, NormalizeUnicode,
+    BlocklistFilter, CharacterRatioFilter, CleanCharacters, LanguageFilter, LengthFilter, MaskPii, NormalizeUnicode,
     NormalizeWhitespace, RepetitionFilter, StepConfig, UnicodeForm, WordQualityFilter,
 };
 use unicode_normalization::{IsNormalized, UnicodeNormalization, is_nfc_quick, is_nfkc_quick};
@@ -28,6 +28,7 @@ pub fn build(config: &StepConfig) -> AppResult<Box<dyn Step>> {
         StepConfig::NormalizeUnicode(c) => Box::new(c.clone()),
         StepConfig::CleanCharacters(c) => Box::new(c.clone()),
         StepConfig::NormalizeWhitespace(c) => Box::new(c.clone()),
+        StepConfig::MaskPii(c) => Box::new(PiiMasker::new(c)),
         StepConfig::LengthFilter(c) => {
             check_order("characters", c.min_chars, c.max_chars)?;
             check_order("words", c.min_words, c.max_words)?;
@@ -222,6 +223,92 @@ fn collapse_spaces(line: &str) -> String {
         }
     }
     out
+}
+
+struct PiiMasker {
+    email: Option<regex::Regex>,
+    ipv4: Option<regex::Regex>,
+    ipv6: Option<regex::Regex>,
+    phone: Option<regex::Regex>,
+    card: Option<regex::Regex>,
+}
+
+fn digits(s: &str) -> Vec<u32> {
+    s.chars().filter_map(|c| c.to_digit(10)).collect()
+}
+
+fn luhn(d: &[u32]) -> bool {
+    let sum: u32 = d
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(i, &x)| if i % 2 == 1 { if x * 2 > 9 { x * 2 - 9 } else { x * 2 } } else { x })
+        .sum();
+    sum.is_multiple_of(10)
+}
+
+impl PiiMasker {
+    fn new(c: &MaskPii) -> Self {
+        let re = |on: bool, pattern: &str| on.then(|| regex::Regex::new(pattern).expect("valid pattern"));
+        Self {
+            email: re(c.emails, r"(?i)\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b"),
+            ipv4: re(
+                c.ip_addresses,
+                r"\b(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}\b",
+            ),
+            ipv6: re(c.ip_addresses, r"(?i)\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b"),
+            // Optional country code, then groups separated by space, dot or dash, or an area code in brackets.
+            phone: re(c.phone_numbers, r"(?:\+\d{1,3}[ .-]?)?(?:\(\d{1,4}\)[ .-]?)?\d{2,4}(?:[ .-]\d{2,4}){1,4}\b"),
+            card: re(c.card_numbers, r"\b\d(?:[ -]?\d){12,18}\b"),
+        }
+    }
+}
+
+impl Step for PiiMasker {
+    fn apply(&self, text: &mut String) -> Verdict {
+        let mut out = std::borrow::Cow::Borrowed(text.as_str());
+        if let Some(re) = &self.email {
+            if let std::borrow::Cow::Owned(s) = re.replace_all(&out, "<EMAIL>") {
+                out = std::borrow::Cow::Owned(s);
+            }
+        }
+        // Cards before phones: a card number also looks like a long phone number.
+        if let Some(re) = &self.card {
+            let replaced = re.replace_all(&out, |c: &regex::Captures| {
+                let m = &c[0];
+                if luhn(&digits(m)) { "<CARD>".to_string() } else { m.to_string() }
+            });
+            if replaced != out {
+                out = std::borrow::Cow::Owned(replaced.into_owned());
+            }
+        }
+        if let Some(re) = &self.ipv6 {
+            if let std::borrow::Cow::Owned(s) = re.replace_all(&out, "<IP>") {
+                out = std::borrow::Cow::Owned(s);
+            }
+        }
+        if let Some(re) = &self.ipv4 {
+            if let std::borrow::Cow::Owned(s) = re.replace_all(&out, "<IP>") {
+                out = std::borrow::Cow::Owned(s);
+            }
+        }
+        if let Some(re) = &self.phone {
+            let replaced = re.replace_all(&out, |c: &regex::Captures| {
+                let m = &c[0];
+                let n = digits(m).len();
+                // Separated digit groups of phone length, excluding things like dates (2026-11-17).
+                let looks_like_date = m.len() == 10 && m.as_bytes()[4] == b'-' && m.as_bytes()[7] == b'-';
+                if (9..=15).contains(&n) && !looks_like_date { "<PHONE>".to_string() } else { m.to_string() }
+            });
+            if replaced != out {
+                out = std::borrow::Cow::Owned(replaced.into_owned());
+            }
+        }
+        match out {
+            std::borrow::Cow::Borrowed(_) => Verdict::Unchanged,
+            std::borrow::Cow::Owned(s) => replace_if_changed(text, s),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -651,6 +738,26 @@ mod tests {
         let lenient = Blocklist::new(&BlocklistFilter { terms: vec!["spam".into()], case_sensitive: false, max_hits: 1 });
         assert_eq!(run(&lenient, "spam once").1, None);
         assert_eq!(run(&lenient, "spam spam").1, Some("blocklist"));
+    }
+
+    #[test]
+    fn pii_masking() {
+        let m = PiiMasker::new(&MaskPii::default());
+        let (t, _, changed) = run(
+            &m,
+            "Mail jane.doe@example.org or call +1 555 123 4567 / (030) 1234-5678. Server 192.168.1.20, \
+             card 4111 1111 1111 1111. Meeting on 2026-11-17, order 12345, year 1999.",
+        );
+        assert!(changed);
+        assert_eq!(
+            t,
+            "Mail <EMAIL> or call <PHONE> / <PHONE>. Server <IP>, card <CARD>. Meeting on 2026-11-17, order 12345, year 1999."
+        );
+        // Not a valid card number (fails Luhn) and too long for a phone: left alone.
+        assert!(!run(&m, "Ref 1234 5678 9012 3456 7").2);
+        let off = PiiMasker::new(&MaskPii { emails: false, ..MaskPii::default() });
+        assert_eq!(run(&off, "a@b.co").0, "a@b.co");
+        assert!(!run(&m, "Nothing personal here.").2);
     }
 
     #[test]

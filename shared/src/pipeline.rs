@@ -49,6 +49,7 @@ pub enum StepConfig {
     NormalizeUnicode(NormalizeUnicode),
     CleanCharacters(CleanCharacters),
     NormalizeWhitespace(NormalizeWhitespace),
+    MaskPii(MaskPii),
     LengthFilter(LengthFilter),
     LanguageFilter(LanguageFilter),
     CharacterRatioFilter(CharacterRatioFilter),
@@ -100,6 +101,22 @@ pub struct NormalizeWhitespace {
 impl Default for NormalizeWhitespace {
     fn default() -> Self {
         Self { trim_lines: true, collapse_spaces: true, max_blank_lines: 1, trim_document: true }
+    }
+}
+
+/// Replaces personal information with placeholders.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MaskPii {
+    pub emails: bool,
+    pub phone_numbers: bool,
+    pub ip_addresses: bool,
+    pub card_numbers: bool,
+}
+
+impl Default for MaskPii {
+    fn default() -> Self {
+        Self { emails: true, phone_numbers: true, ip_addresses: true, card_numbers: true }
     }
 }
 
@@ -389,6 +406,19 @@ pub static STEP_KINDS: &[StepKindInfo] = &[
         default: || StepConfig::NormalizeWhitespace(NormalizeWhitespace::default()),
     },
     StepKindInfo {
+        kind: "mask_pii",
+        label: "Mask personal information",
+        category: StepCategory::Normalize,
+        description: "Replace personal information with placeholders: <EMAIL>, <PHONE>, <IP>, <CARD>. Pattern-based: catches common formats, not names or addresses.",
+        fields: &[
+            field("emails", "Email addresses", Bool, ""),
+            field("phone_numbers", "Phone numbers", Bool, "9 or more digits in a phone-like format (+1 555 123 4567, (030) 1234-5678)."),
+            field("ip_addresses", "IP addresses", Bool, "IPv4, and IPv6 written in full."),
+            field("card_numbers", "Payment card numbers", Bool, "13–19 digits that pass the Luhn checksum."),
+        ],
+        default: || StepConfig::MaskPii(MaskPii::default()),
+    },
+    StepKindInfo {
         kind: "length_filter",
         label: "Length filter",
         category: StepCategory::Filter,
@@ -497,6 +527,7 @@ impl StepConfig {
             StepConfig::NormalizeUnicode(_) => "normalize_unicode",
             StepConfig::CleanCharacters(_) => "clean_characters",
             StepConfig::NormalizeWhitespace(_) => "normalize_whitespace",
+            StepConfig::MaskPii(_) => "mask_pii",
             StepConfig::LengthFilter(_) => "length_filter",
             StepConfig::LanguageFilter(_) => "language_filter",
             StepConfig::CharacterRatioFilter(_) => "character_ratio_filter",
@@ -704,7 +735,7 @@ mod tests {
             assert_eq!(cfg.kind(), info.kind);
             assert!(std::ptr::eq(cfg.info(), info));
         }
-        assert_eq!(STEP_KINDS.len(), 11);
+        assert_eq!(STEP_KINDS.len(), 12);
     }
 
     #[test]

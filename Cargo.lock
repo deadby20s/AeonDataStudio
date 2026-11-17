@@ -29,6 +29,7 @@ dependencies = [
  "log",
  "parquet",
  "rayon",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",
