@@ -29,55 +29,100 @@ impl Rng {
     }
 }
 
-const TOPICS: [(&str, &[&str], &[&str]); 5] = [
+/// (topic, subjects, objects). Sentences are subject + verb + object + adverbial, each slot
+/// used at most once per article, so clean articles never repeat phrases (which the
+/// repetition filters would rightly flag).
+const TOPICS: [(&str, [&str; 12], [&str; 12]); 5] = [
     (
         "science",
-        &["The research team", "A new study", "Scientists at the institute", "The laboratory", "An international group of researchers"],
-        &["measured changes in ocean temperature over two decades", "found that the protein folds in an unexpected way", "published data from the latest telescope survey", "tested the new battery chemistry under extreme cold", "tracked the migration of birds across three continents"],
+        ["The research team", "A young biologist", "Scientists at the institute", "The laboratory director", "A group of students", "The survey crew", "Two visiting physicists", "The field station", "Our science editor", "The chemistry department", "An astronomer in Chile", "The ocean project"],
+        ["the ocean temperature records", "a rare species of beetle", "the new battery chemistry", "samples from the glacier", "the migration of swallows", "data from the telescope", "the soil under the old forest", "a faster way to sequence DNA", "the effects of a dry summer", "the light from distant galaxies", "pollen in the lake sediment", "the strength of spider silk"],
     ),
     (
         "cooking",
-        &["The chef", "Our kitchen", "Home cooks", "The bakery on the corner", "A family recipe"],
-        &["roasts the vegetables slowly to bring out their sweetness", "lets the dough rest overnight before shaping it", "balances the sauce with a little lemon juice", "uses seasonal produce from nearby farms", "serves the soup with fresh bread and herbs"],
+        ["The chef", "My grandmother", "The bakery on the corner", "A food writer", "Our cooking club", "The village restaurant", "A pastry student", "The market stall owner", "The school canteen", "A home cook in Lyon", "The test kitchen", "Our neighbour"],
+        ["a slow-roasted tomato sauce", "the sourdough starter", "a spiced pumpkin soup", "fresh pasta with wild garlic", "the lemon tart recipe", "a pot of mushroom risotto", "the summer fruit preserves", "a simple flatbread", "the family stew", "a plate of grilled vegetables", "the apple cake", "a jar of chilli oil"],
     ),
     (
         "travel",
-        &["The old town", "Visitors to the coast", "The mountain railway", "Our guide", "The harbour district"],
-        &["is best explored on foot early in the morning", "offers views across the valley from the upper station", "fills with markets and music during the summer festival", "recommends booking the ferry a few days ahead", "has narrow streets lined with small cafés"],
+        ["A walking guide", "The ferry company", "Our travel writer", "A family from Oslo", "The tourist office", "Two cyclists", "The mountain hut keeper", "A photographer", "The harbour master", "The local historian", "A group of hikers", "The railway museum"],
+        ["the coastal footpath", "the old harbour district", "a quiet valley village", "the night train timetable", "the castle ruins", "the island ferry route", "a market in the square", "the lighthouse trail", "the mountain pass", "the river cruise", "a small mountain lake", "the cathedral tower"],
     ),
     (
         "history",
-        &["The archive", "Historians", "The museum collection", "Letters from the period", "The town records"],
-        &["show how trade routes shifted after the war", "describe the construction of the first stone bridge", "reveal daily life in a busy port city", "document the founding of the local school", "explain why the castle was abandoned"],
+        ["The archive", "A local historian", "The museum curator", "Letters from the period", "The town records", "A retired teacher", "The parish register", "An old newspaper", "The excavation team", "A family diary", "The city council", "The library collection"],
+        ["the first stone bridge", "the founding of the school", "trade along the old canal", "the great flood", "the abandoned castle", "life in the busy port", "the wartime factory", "the medieval market rules", "the railway strike", "the town's oldest mill", "the lost village", "the earliest street map"],
     ),
     (
         "technology",
-        &["The update", "Engineers", "The open-source project", "The new compiler", "Our team"],
-        &["reduces memory use when processing large files", "adds support for reading compressed archives", "fixes a rare crash during startup", "makes the search feature noticeably faster", "improves accessibility for keyboard users"],
+        ["The open-source project", "Our engineering team", "The new compiler", "A security researcher", "The database vendor", "Two maintainers", "The browser team", "A student developer", "The release manager", "The cloud provider", "A hardware startup", "The accessibility group"],
+        ["the memory allocator", "the file import code", "a rare crash at startup", "the search index", "keyboard navigation", "the build system", "support for compressed archives", "the error messages", "the plugin interface", "battery use on laptops", "the network protocol", "the documentation site"],
     ),
+];
+
+const VERBS: [&str; 12] = [
+    "studied", "described", "improved", "tested", "explained", "measured", "compared", "reviewed", "documented",
+    "examined", "rebuilt", "photographed",
+];
+
+const ADVERBIALS: [&str; 12] = [
+    "during the spring", "over the past decade", "in a small village near the coast", "with help from local volunteers",
+    "after several months of careful work", "for the first time last year", "despite a difficult start",
+    "in a report published this week", "with surprisingly good results", "before the winter arrived",
+    "as part of a larger project", "under the guidance of an experienced mentor",
 ];
 
 const CONNECTORS: [&str; 6] = ["In addition,", "However,", "As a result,", "Meanwhile,", "For example,", "Over time,"];
 
-fn sentence(rng: &mut Rng, topic: usize) -> String {
-    let (_, subjects, predicates) = TOPICS[topic];
-    let s = format!("{} {}.", rng.pick(subjects), rng.pick(predicates));
-    if rng.below(3) == 0 {
-        let c = rng.pick(&CONNECTORS);
-        let mut chars = s.chars();
-        let first = chars.next().map(|c| c.to_lowercase().to_string()).unwrap_or_default();
-        format!("{c} {first}{}", chars.as_str())
-    } else {
-        s
+/// `count` distinct indices below `n`, in random order.
+fn distinct(rng: &mut Rng, n: usize, count: usize) -> Vec<usize> {
+    let mut idx: Vec<usize> = (0..n).collect();
+    for i in 0..count.min(n) {
+        let j = i + rng.below(n - i);
+        idx.swap(i, j);
+    }
+    idx.truncate(count.min(n));
+    idx
+}
+
+fn compose(subject: &str, verb: &str, object: &str, adverbial: &str, connector: Option<&str>) -> String {
+    let s = format!("{subject} {verb} {object} {adverbial}.");
+    match connector {
+        Some(c) => {
+            let mut chars = s.chars();
+            let first = chars.next().map(|c| c.to_lowercase().to_string()).unwrap_or_default();
+            format!("{c} {first}{}", chars.as_str())
+        }
+        None => s,
     }
 }
 
+/// One random sentence on `topic`.
+fn sentence(rng: &mut Rng, topic: usize) -> String {
+    let (_, subjects, objects) = &TOPICS[topic];
+    let (s, v, o, a) = (rng.below(12), rng.below(12), rng.below(12), rng.below(12));
+    compose(subjects[s], VERBS[v], objects[o], ADVERBIALS[a], None)
+}
+
+/// An article of 6–12 sentences in 2–3 paragraphs, never repeating a phrase.
 fn article(rng: &mut Rng, topic: usize) -> String {
-    let paragraphs = 2 + rng.below(4);
-    (0..paragraphs)
-        .map(|_| (0..3 + rng.below(4)).map(|_| sentence(rng, topic)).collect::<Vec<_>>().join(" "))
-        .collect::<Vec<_>>()
-        .join("\n\n")
+    let (_, subjects, objects) = &TOPICS[topic];
+    let n = 6 + rng.below(7);
+    let (s, v, o, a) = (distinct(rng, 12, n), distinct(rng, 12, n), distinct(rng, 12, n), distinct(rng, 12, n));
+    let connectors = distinct(rng, CONNECTORS.len(), CONNECTORS.len());
+    let mut used_connectors = 0;
+    let sentences: Vec<String> = (0..n)
+        .map(|i| {
+            let connector = (i > 0 && used_connectors < connectors.len() && rng.below(4) == 0).then(|| {
+                used_connectors += 1;
+                CONNECTORS[connectors[used_connectors - 1]]
+            });
+            compose(subjects[s[i]], VERBS[v[i]], objects[o[i]], ADVERBIALS[a[i]], connector)
+        })
+        .collect();
+    let paragraphs = 2 + rng.below(2);
+    let per = n.div_ceil(paragraphs);
+    sentences.chunks(per).map(|c| c.join(" ")).collect::<Vec<_>>().join("\n\n")
 }
 
 const GERMAN: [&str; 5] = [
@@ -215,5 +260,39 @@ mod tests {
             assert!(text.contains(&format!("\"category\":\"{cat}\"")), "missing {cat}");
         }
         assert!(text.contains("cafÃ©"), "mojibake is really broken");
+    }
+
+    /// Clean articles must survive the default template (without dedup, which needs the whole
+    /// corpus) and most planted problems must be caught, or the demo would mislead testers.
+    #[test]
+    fn template_keeps_clean_articles_and_catches_planted_problems() {
+        use crate::pipeline::{Decisions, Pipeline};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("demo.jsonl");
+        write_jsonl(&path).unwrap();
+        let mut spec = aeon_shared::PipelineSpec::template("t");
+        spec.steps.retain(|s| !s.config.kind().ends_with("_dedup"));
+        let p = Pipeline::compile(&spec).unwrap();
+        let mut by_cat: std::collections::BTreeMap<String, (u32, u32)> = Default::default();
+        for line in std::fs::read_to_string(&path).unwrap().lines() {
+            let v: serde_json::Value = serde_json::from_str(line).unwrap();
+            let cat = v["category"].as_str().unwrap().to_string();
+            let kept = p.process(v["text"].as_str().unwrap().to_string(), 0, &Decisions::default(), None).dropped.is_none();
+            let e = by_cat.entry(cat).or_default();
+            e.0 += 1;
+            e.1 += kept as u32;
+        }
+        let share = |c: &str| {
+            let (n, kept) = by_cat[c];
+            kept as f64 / n as f64
+        };
+        assert!(share("clean") > 0.95, "clean kept: {by_cat:?}");
+        for planted in ["german", "french", "spanish", "menu", "spam", "too_short", "numbers", "all_caps", "lorem_ipsum"] {
+            assert!(share(planted) < 0.1, "{planted} mostly kept: {by_cat:?}");
+        }
+        // Fixable problems are fixed, not removed.
+        for fixable in ["mojibake", "messy_whitespace"] {
+            assert!(share(fixable) > 0.9, "{fixable} removed: {by_cat:?}");
+        }
     }
 }
