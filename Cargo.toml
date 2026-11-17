@@ -21,6 +21,11 @@ members = ["src-tauri", "shared", "core", "cli"]
 
 # Applies to every crate in the workspace. Cargo ignores profiles in member crates.
 # See https://tauri.app/concept/size/#cargo-configuration
+# Debug builds: full debug info for our own crates, none for dependencies (DuckDB's C++ build
+# included). That keeps target/ to a fraction of the size; panics in our code still show lines.
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 codegen-units = 1
 lto = true
