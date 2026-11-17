@@ -105,6 +105,17 @@ pub struct SqlResult {
     pub message: Option<String>,
 }
 
+/// Result of checking a query without running it.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct SqlCheck {
+    /// `None` when DuckDB accepts the query.
+    pub error: Option<String>,
+    /// 1-based line of the error, when DuckDB reports one.
+    pub line: Option<u32>,
+    /// 0-based character column in that line.
+    pub column: Option<u32>,
+}
+
 /// An available update.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateInfo {

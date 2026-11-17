@@ -380,3 +380,45 @@ ins.ins, span.ins { background: color-mix(in srgb, var(--ok) 25%, transparent); 
 /* Step settings */
 .prompt-input { min-height: 140px; }
 .field:has(.prompt-input) { grid-column: 1 / -1; }
+
+/* SQL editor: a highlighted <pre> behind a transparent <textarea> with identical metrics. */
+.sql-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.sql-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.sql-status .ok { color: var(--ok); }
+.sql-editor-wrap { position: relative; }
+.sql-editor-wrap .sql-editor {
+  margin: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; line-height: 1.5;
+  tab-size: 2; white-space: pre-wrap; overflow-wrap: anywhere; letter-spacing: normal;
+  font-variant-ligatures: none; box-sizing: border-box; width: 100%; min-height: 180px;
+}
+.sql-backdrop { position: absolute; inset: 0; overflow: hidden; background: var(--surface); color: var(--text); pointer-events: none; }
+.sql-input { position: relative; display: block; resize: vertical; background: transparent; color: transparent; caret-color: var(--text); }
+.sql-input::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); color: transparent; }
+.tk-kw { color: var(--accent); font-weight: 600; }
+.tk-fn { color: #b5651d; }
+.tk-ty { color: #0f8b8d; }
+.tk-str { color: var(--ok); }
+.tk-num { color: #b3367a; }
+.tk-com { color: var(--muted); font-style: italic; }
+.tk-tbl { color: #7a4fd5; font-weight: 600; }
+.tk-op { color: var(--muted); }
+.tk-err { text-decoration: underline wavy var(--danger); text-underline-offset: 3px; background: color-mix(in srgb, var(--danger) 15%, transparent); }
+@media (prefers-color-scheme: dark) {
+  :root:not([style]) .tk-fn { color: #f0a640; }
+  :root:not([style]) .tk-ty { color: #4fd1c5; }
+  :root:not([style]) .tk-num { color: #f78fb3; }
+  :root:not([style]) .tk-tbl { color: #b69cff; }
+}
+
+.snippet-menu { position: relative; }
+.snippet-pop {
+  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; width: min(560px, 80vw);
+  max-height: 60vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); padding: 8px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px;
+}
+.snippet-group { display: flex; flex-direction: column; gap: 2px; }
+.snippet-item { border: none; background: none; text-align: left; padding: 4px 6px; border-radius: 4px; font-size: 13px; }
+.snippet-item:hover:not(:disabled) { background: var(--surface-2); }
+.snippet-item:disabled { color: var(--muted); }

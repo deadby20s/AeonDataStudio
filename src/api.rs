@@ -456,3 +456,13 @@ pub async fn set_api_enabled(enabled: bool, port: Option<u16>) -> ApiResult<aeon
 pub async fn new_api_token() -> ApiResult<aeon_shared::ApiStatus> {
     call("new_api_token", &NoArgs {}).await
 }
+
+#[derive(Serialize)]
+struct SqlArg<'a> {
+    sql: &'a str,
+}
+
+/// Parses and binds a query without running it.
+pub async fn check_sql(sql: &str) -> ApiResult<aeon_shared::SqlCheck> {
+    call("check_sql", &SqlArg { sql }).await
+}

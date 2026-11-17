@@ -119,9 +119,17 @@ doc_3 = tokens[offsets[3]:offsets[4]]
 
 **SQL** runs DuckDB queries over the workspace: every dataset is a table `ds_<name>` (columns
 `id`, `text`, `source`, `meta`; `meta` is JSON, so `meta->>'url'` works) and every run's removed
-documents a table `removed_<run>`. Click a table to start a query, or pick an example (documents
-per source, length distribution, filtering by metadata, text search). **Ctrl+Enter** runs, up to
-1,000 rows are shown, and long queries can be cancelled. DuckDB uses half of your CPU cores.
+documents a table `removed_<run>`.
+- **Writing queries.** Click a table to start a query, or open **Snippets** for ready-made
+  ones: look at documents, length and word statistics, metadata values, top domains,
+  duplicate texts, leftover HTML, removals per rule, and saving results to Parquet. Snippets
+  are inserted at the cursor and use your first dataset (or run log); the run-log snippets
+  are greyed out until you have a run.
+- **Checking.** The editor highlights SQL and checks the query while you type. DuckDB parses
+  it and looks up the tables and columns without running it. Mistakes are underlined, and the
+  message appears above the editor (✓ Valid when there are none).
+- **Running.** **Ctrl+Enter** runs the query and **Tab** indents. Up to 1,000 rows are shown,
+  and long queries can be cancelled. DuckDB uses half of your CPU cores.
 
 ## Plugins and language models
 

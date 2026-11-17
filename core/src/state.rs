@@ -79,6 +79,8 @@ pub struct AppState {
     pub version: String,
     /// Cancel flag of the preview running now, if any (one preview at a time).
     pub preview_cancel: std::sync::Mutex<Option<Arc<std::sync::atomic::AtomicBool>>>,
+    /// Checks queries while the user types (keeps its DuckDB session between checks).
+    pub sql_checker: crate::sql::Checker,
     /// Interrupts the running SQL query, if any.
     pub sql_cancel: std::sync::Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
 }
@@ -93,6 +95,7 @@ impl AppState {
             jobs,
             version: version.into(),
             preview_cancel: std::sync::Mutex::new(None),
+            sql_checker: Default::default(),
             sql_cancel: std::sync::Mutex::new(None),
         }
     }

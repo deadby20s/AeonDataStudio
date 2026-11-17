@@ -338,6 +338,10 @@ pub fn handle(state: &AppState, req: &Request<'_>) -> ApiResult {
         }
 
         ("GET", ["sql", "tables"]) => to_json(state.sql_tables()?),
+        ("POST", ["sql", "check"]) => {
+            let b: SqlBody = req.body()?;
+            to_json(state.check_sql(&b.sql)?)
+        }
         ("POST", ["sql"]) => {
             let b: SqlBody = req.body()?;
             to_json(state.run_sql(&b.sql, b.limit)?)

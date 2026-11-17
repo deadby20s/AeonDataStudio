@@ -394,6 +394,12 @@ pub async fn run_sql(sql: String, limit: u64, state: St<'_>) -> AppResult<aeon_s
     blocking(&state, move |s| s.run_sql(&sql, limit)).await
 }
 
+/// Parses and binds a query without running it, for live checking while typing.
+#[tauri::command]
+pub async fn check_sql(sql: String, state: St<'_>) -> AppResult<aeon_shared::SqlCheck> {
+    blocking(&state, move |s| s.check_sql(&sql)).await
+}
+
 #[tauri::command]
 pub fn cancel_sql(state: St<'_>) {
     state.0.cancel_sql();

@@ -89,6 +89,7 @@ curl -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:7878/api/v1/jobs/7?wait
 | POST | `/mixes` | `MixRequest` | `{"job_id"}` |
 | GET | `/sql/tables` | | Tables for SQL |
 | POST | `/sql` | `{"sql", "limit"}` | Columns and rows |
+| POST | `/sql/check` | `{"sql"}` | Parses and binds without running: `{"error", "line", "column"}` |
 | GET | `/jobs` | | All jobs |
 | GET | `/jobs/{id}` | `wait` (seconds, ≤ 600) | Job status; with `wait`, waits until it ends |
 | POST | `/jobs/{id}/cancel` | | |
