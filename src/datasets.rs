@@ -283,12 +283,17 @@ fn ImportForm(on_close: Callback<()>) -> impl IntoView {
         });
     };
 
-    let uses_fields = move || format.get().has_fields();
-    let uses_text_mode = move || matches!(format.get(), ImportFormat::Auto | ImportFormat::Text);
     let can_start = move || !busy.get() && !paths.with(Vec::is_empty) && !name.with(|n| n.trim().is_empty());
 
     // Sample the first file whenever the sources or reading settings change.
     let preview = RwSignal::new(None::<Result<ImportPreview, String>>);
+    // With "detect", the sampled file's format decides (HTML and WARC have no fields to pick).
+    let detected = move || match (format.get(), preview.get()) {
+        (ImportFormat::Auto, Some(Ok(p))) => p.format,
+        (f, _) => f,
+    };
+    let uses_fields = move || detected().has_fields();
+    let uses_text_mode = move || matches!(detected(), ImportFormat::Auto | ImportFormat::Text);
     let auto_note = RwSignal::new(None::<String>);
     Effect::new(move |_| {
         let ps = paths.get();

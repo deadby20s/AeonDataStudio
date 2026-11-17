@@ -362,7 +362,13 @@ pub fn run(ctx: &mut JobCtx, ws: Arc<Workspace>, req: ExportRequest, app_version
     validate(&req)?;
     let reader = DatasetReader::open(&ws.dataset_dir(&req.dataset_id)?)?;
     let folder = folder_name(&req.name);
-    let external = req.output_dir.as_deref().map(str::trim).filter(|d| !d.is_empty()).map(PathBuf::from);
+    // Rebuilt from components so separators are consistent (C:/a/b → C:\a\b on Windows).
+    let external = req
+        .output_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(|d| PathBuf::from(d).components().collect::<PathBuf>());
     let exports = match &external {
         Some(dir) if !dir.is_dir() => {
             return Err(AppError::InvalidInput(format!("{} is not a folder", dir.display())));
