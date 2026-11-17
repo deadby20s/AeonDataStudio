@@ -283,7 +283,7 @@ fn ImportForm(on_close: Callback<()>) -> impl IntoView {
         });
     };
 
-    let uses_fields = move || !matches!(format.get(), ImportFormat::Text);
+    let uses_fields = move || format.get().has_fields();
     let uses_text_mode = move || matches!(format.get(), ImportFormat::Auto | ImportFormat::Text);
     let can_start = move || !busy.get() && !paths.with(Vec::is_empty) && !name.with(|n| n.trim().is_empty());
 

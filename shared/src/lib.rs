@@ -79,17 +79,28 @@ pub enum ImportFormat {
     /// Comma-separated (`.csv`) or tab-separated (`.tsv`) with a header row.
     Csv,
     Parquet,
+    /// Web pages (`.html`, `.htm`): one document per file, main text extracted.
+    Html,
+    /// Web archives (`.warc`, usually `.warc.gz`, e.g. Common Crawl): one document per HTML page.
+    Warc,
 }
 
 impl ImportFormat {
-    pub const ALL: [ImportFormat; 6] = [
+    pub const ALL: [ImportFormat; 8] = [
         ImportFormat::Auto,
         ImportFormat::Jsonl,
         ImportFormat::Json,
         ImportFormat::Text,
         ImportFormat::Csv,
         ImportFormat::Parquet,
+        ImportFormat::Html,
+        ImportFormat::Warc,
     ];
+
+    /// Formats where the text is extracted rather than taken from a field.
+    pub fn has_fields(self) -> bool {
+        !matches!(self, ImportFormat::Text | ImportFormat::Html | ImportFormat::Warc)
+    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -99,6 +110,8 @@ impl ImportFormat {
             ImportFormat::Text => "Plain text",
             ImportFormat::Csv => "CSV / TSV",
             ImportFormat::Parquet => "Parquet",
+            ImportFormat::Html => "HTML pages",
+            ImportFormat::Warc => "WARC web archive",
         }
     }
 
@@ -110,6 +123,8 @@ impl ImportFormat {
             ImportFormat::Text => "text",
             ImportFormat::Csv => "CSV",
             ImportFormat::Parquet => "Parquet",
+            ImportFormat::Html => "HTML",
+            ImportFormat::Warc => "WARC",
         }
     }
 }

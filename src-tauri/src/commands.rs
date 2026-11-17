@@ -89,7 +89,7 @@ pub async fn pick_import_files(app: AppHandle) -> AppResult<Vec<String>> {
             .set_title("Choose files to import")
             .add_filter(
                 "Data files",
-                &["jsonl", "ndjson", "json", "txt", "md", "csv", "tsv", "parquet", "gz", "zst"],
+                &["jsonl", "ndjson", "json", "txt", "md", "csv", "tsv", "parquet", "html", "htm", "warc", "gz", "zst"],
             )
             .add_filter("All files", &["*"])
             .blocking_pick_files())
