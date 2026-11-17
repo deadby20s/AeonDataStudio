@@ -23,6 +23,11 @@ body:
       description: Copy the message shown in the app (for failed jobs, it's on the Jobs page).
       render: text
   - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Settings → Open log folder, then drag AeonDataStudio.log here (or paste the last lines).
+  - type: textarea
     id: data
     attributes:
       label: About your data
