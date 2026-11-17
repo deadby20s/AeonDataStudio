@@ -127,6 +127,9 @@ input { width: 100%; }
 .nav-item:hover:not(:disabled) { background: var(--surface-2); }
 .nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
 .badge { background: var(--accent); color: var(--accent-text); border-radius: 999px; font-size: 11px; padding: 0 7px; line-height: 18px; }
+.update-pill { margin-top: auto; border-color: var(--accent); color: var(--accent); background: var(--accent-soft); font-size: 12px; }
+.update-pill + .sidebar-footer { margin-top: 8px; }
+.pre { white-space: pre-wrap; }
 .sidebar-footer { margin-top: auto; padding: 0 8px; }
 
 .content { overflow-y: auto; padding: 24px 32px; display: flex; flex-direction: column; gap: 16px; }

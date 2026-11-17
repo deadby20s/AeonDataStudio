@@ -350,6 +350,14 @@ pub async fn open_log_folder() -> ApiResult<String> {
     call("open_log_folder", &NoArgs {}).await
 }
 
+pub async fn check_for_update() -> ApiResult<Option<aeon_shared::UpdateInfo>> {
+    call("check_for_update", &NoArgs {}).await
+}
+
+pub async fn install_update() -> ApiResult<()> {
+    call("install_update", &NoArgs {}).await
+}
+
 pub async fn list_jobs() -> ApiResult<Vec<JobStatus>> {
     call("list_jobs", &NoArgs {}).await
 }

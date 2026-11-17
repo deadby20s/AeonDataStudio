@@ -22,6 +22,7 @@ use crate::state::AppState;
 pub fn get_app_info(app: AppHandle, state: State<'_, AppState>) -> AppResult<AppInfo> {
     let workspace = state.current_workspace().map(|w| w.info()).transpose()?;
     Ok(AppInfo {
+        updates_configured: crate::updates::configured(),
         version: app.package_info().version.to_string(),
         workspace,
         recent_workspaces: state.recent_workspaces(),
@@ -463,4 +464,20 @@ pub fn open_log_folder(app: AppHandle) -> AppResult<String> {
         .open_path(dir.display().to_string(), None::<&str>)
         .map_err(|e| AppError::Internal(format!("Could not open the folder: {e}")))?;
     Ok(dir.display().to_string())
+}
+
+// ---------------------------------------------------------------------------------------------
+// Updates
+// ---------------------------------------------------------------------------------------------
+
+/// `Ok(None)` when up to date. Errors (including "not set up in this build") are shown as-is.
+#[tauri::command]
+pub async fn check_for_update(app: AppHandle) -> AppResult<Option<aeon_shared::UpdateInfo>> {
+    crate::updates::check(&app).await
+}
+
+/// Downloads, installs and restarts into the new version.
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> AppResult<()> {
+    crate::updates::install(&app).await
 }

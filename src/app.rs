@@ -63,6 +63,9 @@ pub struct AppCtx {
     pub draft: RwSignal<Option<Draft>>,
     /// Run shown in the Inspector; `None` picks the newest.
     pub inspect_run: RwSignal<Option<String>>,
+    pub updates_configured: RwSignal<bool>,
+    /// Set when a newer version is available.
+    pub update: RwSignal<Option<aeon_shared::UpdateInfo>>,
 }
 
 impl AppCtx {
@@ -79,6 +82,8 @@ impl AppCtx {
             selected_run: RwSignal::new(None),
             draft: RwSignal::new(None),
             inspect_run: RwSignal::new(None),
+            updates_configured: RwSignal::new(false),
+            update: RwSignal::new(None),
         }
     }
 
@@ -97,6 +102,7 @@ impl AppCtx {
     pub async fn refresh(&self) -> api::ApiResult<()> {
         let info = api::get_app_info().await?;
         self.version.set(info.version);
+        self.updates_configured.set(info.updates_configured);
         self.workspace.set(info.workspace);
         self.recent.set(info.recent_workspaces);
         Ok(())
@@ -119,6 +125,12 @@ pub fn App() -> impl IntoView {
                 ctx.upsert_job(job);
             }
             api::on_job_update(move |status| ctx.upsert_job(status)).await?;
+            if ctx.updates_configured.get_untracked() {
+                // Quietly: a failed check (offline, …) just shows nothing.
+                if let Ok(Some(u)) = api::check_for_update().await {
+                    ctx.update.set(Some(u));
+                }
+            }
             Ok(())
         }
         .await;
@@ -204,6 +216,13 @@ fn Shell() -> impl IntoView {
                         })
                         .collect_view()}
                 </ul>
+                {move || {
+                    ctx.update.get().map(|u| view! {
+                        <button class="update-pill" on:click=move |_| ctx.page.set(Page::Settings)>
+                            {format!("Update {} available", u.version)}
+                        </button>
+                    })
+                }}
                 <div class="sidebar-footer muted small">"v" {move || ctx.version.get()} " alpha"</div>
             </nav>
             <main class="content">

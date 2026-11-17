@@ -37,5 +37,13 @@
     "category": "DeveloperTool",
     "shortDescription": "Personal data studio for preparing AI pretraining data",
     "longDescription": "Import text data, clean it with normalizers, Gopher-style quality filters and deduplication, inspect what was removed and why, and export training-ready JSONL, Parquet or tokenized shards. Runs locally."
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": [
+        "https://github.com/deadby20s/AeonDataStudio/releases/download/updater/latest.json"
+      ]
+    }
   }
 }

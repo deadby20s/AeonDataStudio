@@ -18,9 +18,20 @@ pub const JOB_UPDATE_EVENT: &str = "job://update";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppInfo {
     pub version: String,
+    /// Whether this build can update itself (it was built with the update signing key).
+    #[serde(default)]
+    pub updates_configured: bool,
     pub workspace: Option<WorkspaceInfo>,
     /// Recently opened workspace folders, most recent first.
     pub recent_workspaces: Vec<String>,
+}
+
+/// An available update.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateInfo {
+    pub version: String,
+    pub notes: Option<String>,
+    pub date: Option<String>,
 }
 
 /// The currently open workspace.

@@ -111,3 +111,31 @@ cargo test -p aeondatastudio
 **Checking the UI in a normal browser.** `trunk serve` alone (port 1420) shows only "Could not
 start", because `window.__TAURI__` exists only inside the Tauri window. Use `cargo tauri dev`
 for real testing.
+
+## Auto-updates
+
+Installed apps check `https://github.com/deadby20s/AeonDataStudio/releases/download/updater/latest.json`
+on start (Settings → Updates to check by hand). Updates are signed, so they need a key pair
+that only the maintainer holds. One-time setup:
+
+1. Generate the key pair (choose a password when asked; keep the `.key` file private and
+   backed up — losing it means installed apps can no longer be updated):
+   ```bash
+   cargo tauri signer generate -w ~/.tauri/aeondatastudio.key
+   ```
+2. Add two repository secrets on GitHub (Settings → Secrets and variables → Actions):
+   `TAURI_SIGNING_PRIVATE_KEY` = the contents of `~/.tauri/aeondatastudio.key`, and
+   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` = the password. With the GitHub CLI:
+   ```bash
+   gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/aeondatastudio.key
+   ```
+   ```bash
+   gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+   ```
+3. Put the **public** key (contents of `~/.tauri/aeondatastudio.key.pub`) into
+   `src-tauri/updater-pubkey.txt` and commit it.
+
+From then on, tagged release builds sign their installers and upload `latest.json`;
+publishing the release runs `.github/workflows/updater-channel.yml`, which copies
+`latest.json` to the `updater` release that apps check. Versions built before step 3 can't
+update themselves; users install the first signed version by hand.

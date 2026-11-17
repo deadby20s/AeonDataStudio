@@ -9,6 +9,7 @@ mod jobs;
 mod mix;
 mod pipeline;
 mod state;
+mod updates;
 mod workspace;
 
 use std::path::PathBuf;
@@ -23,6 +24,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(
             // Writes AeonDataStudio.log to the OS log folder (Settings → Open log folder).
             tauri_plugin_log::Builder::new()
@@ -87,6 +90,8 @@ pub fn run() {
             commands::preview_import,
             commands::create_demo_dataset,
             commands::open_log_folder,
+            commands::check_for_update,
+            commands::install_update,
             commands::list_jobs,
             commands::cancel_job,
             commands::clear_finished_jobs,

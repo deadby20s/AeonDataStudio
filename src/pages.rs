@@ -293,6 +293,8 @@ pub fn SettingsPage() -> impl IntoView {
     let ctx = use_app();
     let error = RwSignal::new(None::<String>);
     let log_note = RwSignal::new(None::<String>);
+    let update_note = RwSignal::new(None::<String>);
+    let update_busy = RwSignal::new(false);
 
     let close = move |_| {
         spawn_local(async move {
@@ -335,6 +337,55 @@ pub fn SettingsPage() -> impl IntoView {
                     })
             }}
             <button on:click=close>"Close workspace"</button>
+        </section>
+        <section class="card">
+            <h2>"Updates"</h2>
+            {move || {
+                if !ctx.updates_configured.get() {
+                    return view! {
+                        <p class="muted small">
+                            "This build can't update itself. Download new versions from the Releases page on GitHub."
+                        </p>
+                    }
+                        .into_any();
+                }
+                view! {
+                    {move || match ctx.update.get() {
+                        Some(u) => view! {
+                            <p>{format!("Version {} is available.", u.version)}</p>
+                            {u.notes.map(|n| view! { <p class="muted small pre">{n}</p> })}
+                            <button class="primary" disabled=move || update_busy.get() on:click=move |_| {
+                                update_busy.set(true);
+                                update_note.set(Some("Downloading and installing… the app restarts when done.".into()));
+                                spawn_local(async move {
+                                    if let Err(e) = api::install_update().await {
+                                        update_note.set(Some(e.to_string()));
+                                        update_busy.set(false);
+                                    }
+                                });
+                            }>"Install and restart"</button>
+                        }
+                            .into_any(),
+                        None => view! {
+                            <button disabled=move || update_busy.get() on:click=move |_| {
+                                update_busy.set(true);
+                                update_note.set(None);
+                                spawn_local(async move {
+                                    match api::check_for_update().await {
+                                        Ok(Some(u)) => ctx.update.set(Some(u)),
+                                        Ok(None) => update_note.set(Some("You have the latest version.".into())),
+                                        Err(e) => update_note.set(Some(e.to_string())),
+                                    }
+                                    update_busy.set(false);
+                                });
+                            }>"Check for updates"</button>
+                        }
+                            .into_any(),
+                    }}
+                    {move || update_note.get().map(|n| view! { <p class="muted small">{n}</p> })}
+                }
+                    .into_any()
+            }}
         </section>
         <section class="card">
             <h2>"Demo data"</h2>
