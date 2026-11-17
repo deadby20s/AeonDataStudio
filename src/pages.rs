@@ -292,6 +292,7 @@ pub fn JobRow(id: JobId, error: RwSignal<Option<String>>) -> impl IntoView {
 pub fn SettingsPage() -> impl IntoView {
     let ctx = use_app();
     let error = RwSignal::new(None::<String>);
+    let log_note = RwSignal::new(None::<String>);
 
     let close = move |_| {
         spawn_local(async move {
@@ -334,6 +335,35 @@ pub fn SettingsPage() -> impl IntoView {
                     })
             }}
             <button on:click=close>"Close workspace"</button>
+        </section>
+        <section class="card">
+            <h2>"Demo data"</h2>
+            <p class="muted small">
+                "Adds “Demo: mixed web text” (3,000 generated documents, each tagged with what kind of problem it contains in meta.category) and a “Demo cleanup” pipeline to this workspace."
+            </p>
+            <button on:click=move |_| {
+                spawn_local(async move {
+                    match api::create_demo_dataset().await {
+                        Ok(_) => log_note.set(Some("Demo dataset is being created; see Datasets or Jobs.".into())),
+                        Err(e) => error.set(Some(e.to_string())),
+                    }
+                });
+            }>"Create demo dataset"</button>
+        </section>
+        <section class="card">
+            <h2>"Logs"</h2>
+            <p class="muted small">
+                "The app writes AeonDataStudio.log (jobs started, finished, failed). Attach it to bug reports."
+            </p>
+            <button on:click=move |_| {
+                spawn_local(async move {
+                    match api::open_log_folder().await {
+                        Ok(path) => log_note.set(Some(format!("Opened {path}"))),
+                        Err(e) => error.set(Some(e.to_string())),
+                    }
+                });
+            }>"Open log folder"</button>
+            {move || log_note.get().map(|n| view! { <p class="muted small mono">{n}</p> })}
         </section>
         <section class="card">
             <h2>"About"</h2>
