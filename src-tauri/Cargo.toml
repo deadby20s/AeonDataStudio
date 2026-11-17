@@ -14,7 +14,9 @@ default-run = "aeondatastudio"
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "aeondatastudio_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Desktop only needs the rlib. The template's staticlib/cdylib are for iOS/Android, which this
+# app doesn't target; building them cost 4+ GB in target/ and link time on every build.
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
