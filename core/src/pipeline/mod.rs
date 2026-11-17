@@ -16,6 +16,7 @@ pub mod steps;
 mod storage;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use aeon_shared::{PipelineSpec, RuleCount, StepConfig, StepStats};
 
@@ -29,9 +30,48 @@ pub use removed::RemovedReader;
 pub use run::{RunRequest, read_report, run};
 pub use storage::{delete_pipeline, list_pipelines, read_pipeline, save_pipeline};
 
-/// Checks a recipe without running it, so mistakes show up before a job starts.
-pub fn steps_check(spec: &PipelineSpec) -> AppResult<()> {
-    Pipeline::compile(spec).map(|_| ())
+/// Set by a step that calls something outside the app (plugin, language model) when it fails
+/// for good. Steps then stop calling out, and the run or preview stops with this error after
+/// the current batch, instead of every worker thread failing on its own.
+#[derive(Debug, Default)]
+pub struct Abort(std::sync::Mutex<Option<String>>);
+
+impl Abort {
+    pub fn fail(&self, message: String) {
+        if let Ok(mut m) = self.0.lock()
+            && m.is_none()
+        {
+            log::error!("{message}");
+            *m = Some(message);
+        }
+    }
+
+    pub fn is_set(&self) -> bool {
+        self.0.lock().map(|m| m.is_some()).unwrap_or(true)
+    }
+
+    pub fn error(&self) -> Option<String> {
+        self.0.lock().ok().and_then(|m| m.clone())
+    }
+}
+
+/// What steps need from outside the recipe.
+#[derive(Debug, Clone, Default)]
+pub struct StepEnv {
+    /// The workspace's `plugins/` folder.
+    pub plugins_dir: Option<PathBuf>,
+}
+
+/// Checks a recipe without running it, so mistakes show up before a job starts. Plugins are
+/// started once to check they answer.
+pub fn steps_check(spec: &PipelineSpec, env: &StepEnv) -> AppResult<()> {
+    let p = Pipeline::compile_with(spec, env)?;
+    for s in &p.steps {
+        if let StepImpl::Plugin(runner) = &s.imp {
+            runner.check()?;
+        }
+    }
+    Ok(())
 }
 
 /// Prefix of run folders still being written.
@@ -42,6 +82,7 @@ pub const EMPTY_AFTER_STEP: &str = "empty_after_step";
 
 enum StepImpl {
     Doc(Box<dyn Step>),
+    Plugin(crate::plugins::PluginRunner),
     Dedup(DedupMethod),
 }
 
@@ -56,6 +97,9 @@ pub struct CompiledStep {
 pub struct Pipeline {
     pub name: String,
     pub steps: Vec<CompiledStep>,
+    /// Some step sends documents to a language model.
+    pub uses_llm: bool,
+    pub abort: std::sync::Arc<Abort>,
 }
 
 /// Resolved duplicates for each dedup step, by step position.
@@ -93,17 +137,44 @@ pub struct Outcome {
 }
 
 impl Pipeline {
+    /// Compiles a recipe that uses no plugins.
     pub fn compile(spec: &PipelineSpec) -> AppResult<Self> {
+        Self::compile_with(spec, &StepEnv::default())
+    }
+
+    pub fn compile_with(spec: &PipelineSpec, env: &StepEnv) -> AppResult<Self> {
         if spec.name.trim().is_empty() {
             return Err(AppError::InvalidInput("Give the pipeline a name".into()));
         }
+        // Dedup passes re-run the steps before each dedup step, so a model step placed there
+        // would see (and bill for) every document several times.
+        let enabled: Vec<_> = spec.steps.iter().enumerate().filter(|(_, s)| s.enabled).collect();
+        if let Some((i, llm)) = enabled.iter().find(|(_, s)| s.config.is_llm())
+            && let Some((j, dedup)) = enabled.iter().find(|(j, s)| j > i && s.config.info().category == aeon_shared::StepCategory::Dedup)
+        {
+            return Err(AppError::InvalidInput(format!(
+                "Move step {} ({}) after step {} ({}): language model steps must come after deduplication, so each document is sent once and duplicates are not paid for.",
+                i + 1,
+                llm.config.info().label,
+                j + 1,
+                dedup.config.info().label
+            )));
+        }
+        let abort = std::sync::Arc::new(Abort::default());
         let mut steps = Vec::new();
-        for (index, s) in spec.steps.iter().enumerate().filter(|(_, s)| s.enabled) {
+        for (index, s) in enabled {
             let info = s.config.info();
             let context = |e: AppError| AppError::InvalidInput(format!("Step {} ({}): {e}", index + 1, info.label));
             let imp = match &s.config {
                 StepConfig::ExactDedup(c) => StepImpl::Dedup(DedupMethod::exact(c)),
                 StepConfig::NearDedup(c) => StepImpl::Dedup(DedupMethod::near(c).map_err(context)?),
+                StepConfig::Plugin(c) => {
+                    StepImpl::Plugin(
+                        crate::plugins::PluginRunner::new(env.plugins_dir.as_deref(), c, abort.clone()).map_err(context)?,
+                    )
+                }
+                StepConfig::LlmScore(c) => StepImpl::Doc(Box::new(crate::llm::ScoreStep::new(c, abort.clone()).map_err(context)?)),
+                StepConfig::LlmRewrite(c) => StepImpl::Doc(Box::new(crate::llm::RewriteStep::new(c, abort.clone()).map_err(context)?)),
                 other => StepImpl::Doc(steps::build(other).map_err(context)?),
             };
             steps.push(CompiledStep { index: index as u64, kind: info.kind, label: info.label.to_string(), imp });
@@ -114,7 +185,16 @@ impl Pipeline {
         if steps.len() > 64 {
             return Err(AppError::InvalidInput("A pipeline can have at most 64 enabled steps".into()));
         }
-        Ok(Self { name: spec.name.trim().to_string(), steps })
+        let uses_llm = spec.steps.iter().any(|s| s.enabled && s.config.is_llm());
+        Ok(Self { name: spec.name.trim().to_string(), steps, uses_llm, abort })
+    }
+
+    /// The error of a plugin or model step that failed for good, if any.
+    pub fn check_abort(&self) -> AppResult<()> {
+        match self.abort.error() {
+            Some(e) => Err(AppError::InvalidInput(e)),
+            None => Ok(()),
+        }
     }
 
     /// Positions of dedup steps, in order.
@@ -125,7 +205,7 @@ impl Pipeline {
     fn dedup(&self, pos: usize) -> &DedupMethod {
         match &self.steps[pos].imp {
             StepImpl::Dedup(d) => d,
-            StepImpl::Doc(_) => panic!("step {pos} is not a dedup step"),
+            _ => panic!("step {pos} is not a dedup step"),
         }
     }
 
@@ -140,8 +220,14 @@ impl Pipeline {
     /// Applies the per-document step at `pos` (dedup steps do nothing); used to rebuild
     /// before/after examples.
     pub fn apply_doc_step(&self, pos: usize, text: &mut String) {
-        if let StepImpl::Doc(s) = &self.steps[pos].imp {
-            let _ = s.apply(text);
+        match &self.steps[pos].imp {
+            StepImpl::Doc(s) => {
+                let _ = s.apply(text);
+            }
+            StepImpl::Plugin(p) => {
+                let _ = p.apply(text);
+            }
+            StepImpl::Dedup(_) => {}
         }
     }
 
@@ -166,6 +252,7 @@ impl Pipeline {
             }
             let verdict = match &s.imp {
                 StepImpl::Doc(step) => step.apply(&mut text),
+                StepImpl::Plugin(p) => p.apply(&mut text),
                 StepImpl::Dedup(method) => match decisions.by_pos.get(&pos).and_then(|d| d.get(&row)) {
                     Some(&kept) => {
                         let dropped = Dropped {

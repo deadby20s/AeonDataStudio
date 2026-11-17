@@ -413,3 +413,46 @@ pub async fn on_job_update(mut on_update: impl FnMut(JobStatus) + 'static) -> Ap
     handler.forget();
     Ok(())
 }
+
+// ---------------------------------------------------------------------------------------------
+// Plugins, themes, local API
+// ---------------------------------------------------------------------------------------------
+
+pub async fn list_plugins() -> ApiResult<Vec<aeon_shared::PluginInfo>> {
+    call("list_plugins", &NoArgs {}).await
+}
+
+pub async fn open_plugins_folder() -> ApiResult<()> {
+    call("open_plugins_folder", &NoArgs {}).await
+}
+
+pub async fn get_theme_settings() -> ApiResult<aeon_shared::ThemeSettings> {
+    call("get_theme_settings", &NoArgs {}).await
+}
+
+#[derive(Serialize)]
+struct ThemeArg<'a> {
+    theme: &'a aeon_shared::ThemeSettings,
+}
+
+pub async fn set_theme_settings(theme: &aeon_shared::ThemeSettings) -> ApiResult<()> {
+    call("set_theme_settings", &ThemeArg { theme }).await
+}
+
+pub async fn api_status() -> ApiResult<aeon_shared::ApiStatus> {
+    call("api_status", &NoArgs {}).await
+}
+
+#[derive(Serialize)]
+struct ApiEnableArgs {
+    enabled: bool,
+    port: Option<u16>,
+}
+
+pub async fn set_api_enabled(enabled: bool, port: Option<u16>) -> ApiResult<aeon_shared::ApiStatus> {
+    call("set_api_enabled", &ApiEnableArgs { enabled, port }).await
+}
+
+pub async fn new_api_token() -> ApiResult<aeon_shared::ApiStatus> {
+    call("new_api_token", &NoArgs {}).await
+}

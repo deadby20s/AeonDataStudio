@@ -9,7 +9,7 @@ use aeon_shared::UpdateInfo;
 use tauri::AppHandle;
 use tauri_plugin_updater::UpdaterExt;
 
-use crate::error::{AppError, AppResult};
+use aeon_core::{AppError, AppResult};
 
 const PUBKEY: &str = include_str!("../updater-pubkey.txt");
 

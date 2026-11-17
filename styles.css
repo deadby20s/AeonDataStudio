@@ -271,6 +271,7 @@ textarea { width: 100%; resize: vertical; padding: 6px 8px; }
 .badge-cat.filter { color: var(--accent); border-color: var(--accent); }
 .badge-cat.dedup { color: #b26a00; border-color: #b26a00; }
 @media (prefers-color-scheme: dark) { .badge-cat.dedup { color: #f0a640; border-color: #f0a640; } }
+.badge-cat.external { color: var(--danger); border-color: var(--danger); }
 .step-body { padding: 4px 14px 14px 52px; border-top: 1px solid var(--border); }
 .step-body > p { margin: 8px 0 12px; }
 .field.check { flex-direction: row; align-items: flex-start; gap: 8px; }
@@ -356,3 +357,26 @@ ins.ins, span.ins { background: color-mix(in srgb, var(--ok) 25%, transparent); 
   .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
   .content { padding: 16px; }
 }
+
+/* Appearance */
+.theme-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.theme-chip { display: inline-flex; align-items: center; gap: 8px; }
+.theme-chip.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.swatch { display: inline-flex; gap: 2px; padding: 3px; border-radius: 4px; border: 1px solid var(--border); }
+.swatch > span { width: 10px; height: 14px; border-radius: 2px; }
+.swatch.system { width: 28px; height: 22px; background: linear-gradient(135deg, #f7f7f8 50%, #141417 50%); }
+.theme-editor { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px; display: grid; gap: 12px; }
+.color-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.color-field { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.color-field input[type="color"] { width: 36px; height: 28px; padding: 0 2px; flex: none; }
+
+/* Plugins */
+.plugin-list { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 10px; }
+.plugin-list > li { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+.field.inline { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; margin: 0; }
+.row-buttons:has(.field.inline) { align-items: center; }
+.field.inline input { width: 110px; }
+
+/* Step settings */
+.prompt-input { min-height: 140px; }
+.field:has(.prompt-input) { grid-column: 1 / -1; }

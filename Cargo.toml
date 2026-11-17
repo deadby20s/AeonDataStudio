@@ -1,6 +1,6 @@
 [package]
 name = "aeondatastudio-ui"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 
@@ -17,7 +17,7 @@ serde_json = "1"
 console_error_panic_hook = "0.1.7"
 
 [workspace]
-members = ["src-tauri", "shared"]
+members = ["src-tauri", "shared", "core", "cli"]
 
 # Applies to every crate in the workspace. Cargo ignores profiles in member crates.
 # See https://tauri.app/concept/size/#cargo-configuration

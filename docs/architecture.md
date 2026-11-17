@@ -1,14 +1,24 @@
 # Architecture
 
-## Current state (0.1 alpha, after M4)
+## Current state (0.3)
 
-The Cargo workspace has three crates:
+The Cargo workspace has five crates:
 
 | Crate | Path | Contents |
 |---|---|---|
 | `aeondatastudio-ui` | `src/` | Leptos 0.8 (client-side rendering) compiled to WASM by Trunk |
-| `aeondatastudio` | `src-tauri/` | The Tauri app |
-| `aeon-shared` | `shared/` | Types used by both: `AppInfo`, `WorkspaceInfo`, `DatasetSummary`, `JobStatus`, and the `JOB_UPDATE_EVENT` name |
+| `aeon-core` | `core/` | The engine, without UI: everything under "Backend" below, plus `ops.rs` (every operation as a method on `AppState`), `api.rs` (HTTP router and server), `mcp.rs` (MCP over stdio), `plugins.rs`, `llm.rs` |
+| `aeon-cli` | `cli/` | The `aeon` binary: CLI commands, `aeon serve`, `aeon mcp` |
+| `aeondatastudio` | `src-tauri/` | The Tauri app: native dialogs, updates, themes, the API switch, and thin commands over `aeon-core` |
+| `aeon-shared` | `shared/` | Types used by all of them: `AppInfo`, `WorkspaceInfo`, `DatasetSummary`, `JobStatus`, pipeline specs, and the `JOB_UPDATE_EVENT` name |
+
+One router (`api::handle`) serves the HTTP API, the MCP tools and most CLI commands, so they
+can't drift apart. The app's commands call the same `AppState` methods directly.
+
+- **Plugins** are processes started per step (a small pool), fed JSON lines.
+- **LLM steps** call `/chat/completions` with `ureq`.
+- **Failures.** Both report a final failure through the pipeline's shared `Abort`. Steps stop
+  calling out, and the run or preview returns that error after the current batch.
 
 **Frontend** (`src/`)
 - `api.rs`: the only place that calls `invoke`. Declared with `catch`, so a failed command
@@ -20,7 +30,7 @@ The Cargo workspace has three crates:
 - Job rows are keyed by id and update in place. Rebuilding them on every progress event
   replaced the Cancel button between mouse-down and mouse-up, so clicks were lost.
 
-**Backend** (`src-tauri/src/`)
+**Backend** (`core/src/` since 0.3; it was `src-tauri/src/`)
 - `commands.rs`: thin handlers, all returning `AppResult<T>`.
 - `error.rs`: `AppError`, which serializes to its message string for the frontend.
 - `state.rs`: `AppState` (open workspace, job manager) and `AppSettings` (recent workspaces,
@@ -199,6 +209,13 @@ Record non-obvious decisions here, newest first.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-11-17 | The local API uses `tiny_http` on 127.0.0.1 with a bearer token, compared in constant time; no CORS headers | Small and synchronous like the engine. Loopback-only plus a token stops other users and web pages; without CORS headers, browsers can't read responses |
+| 2026-11-17 | MCP tools never delete | An assistant may misread a request; deleting stays a human action in the app, CLI or API |
+| 2026-11-17 | Plugins speak JSON lines over stdio, one process pool per step | Any language works, and nothing has to be linked into the app. Long-lived processes avoid paying model start-up per document |
+| 2026-11-17 | LLM steps must come after dedup steps | Dedup passes re-run the steps before them; a model there would be called (and paid) several times per document |
+| 2026-11-17 | A failing plugin or model step sets a shared abort flag, not a panic | A panic on every worker thread flooded the log and turned into "the job crashed"; the run now stops with one clear error |
+| 2026-11-17 | API keys for LLM steps are read from a named environment variable | Recipes are shared and committed; a key in them would leak |
+| 2026-11-17 | The engine moved to `aeon-core`, and operations to `ops.rs` | The CLI, API and MCP server need it without Tauri; one implementation keeps all four frontends in step |
 | 2026-11-15 | CSP `connect-src` includes `'self'`; Trunk's `wasm-opt` is off and the UI crate uses `opt-level = "z"` | The frontend fetches its own `.wasm`, which a CSP without `'self'` blocks (only visible in release builds; dev doesn't enforce the CSP). `wasm-opt` is downloaded at build time and failed offline |
 | 2026-11-15 | Export shard sizes and reported sizes use MiB | One unit everywhere (the UI's byte formatting is binary) |
 | 2026-11-15 | `tokenizers` 0.22 with `fancy-regex`, not the 1.0 release candidate or Oniguruma | Stable release; pure-Rust regex avoids building a C library on Windows |

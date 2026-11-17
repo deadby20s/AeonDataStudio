@@ -1,4 +1,4 @@
-# User Guide (0.1 alpha)
+# User Guide (alpha)
 
 This guide walks through preparing a pretraining dataset with AeonDataStudio, from raw files
 to training-ready shards. Everything happens on your machine; nothing is uploaded.
@@ -123,6 +123,39 @@ documents a table `removed_<run>`. Click a table to start a query, or pick an ex
 per source, length distribution, filtering by metadata, text search). **Ctrl+Enter** runs, up to
 1,000 rows are shown, and long queries can be cancelled. DuckDB uses half of your CPU cores.
 
+## Plugins and language models
+
+- **Plugins.** Install a plugin by copying its folder into the workspace's plugins folder
+  (Settings → Plugins → Open plugins folder). Then add a **Plugin** step to a pipeline and type
+  the plugin's folder name. Options go in the step as `key=value` lines. Settings → Plugins
+  lists what's installed and the options each plugin takes. See [plugins.md](plugins.md).
+- **Language models.** **LLM quality score** and **LLM rewrite** steps work with any
+  OpenAI-compatible server. The default is Ollama on this computer
+  (`http://localhost:11434/v1`). For a hosted API, put its URL in **Server URL**, and put the
+  *name* of the environment variable that holds your key in **API key variable** (for example
+  `OPENAI_API_KEY`).
+- **Data recipes.** The quickest start is **New pipeline… → Recipe: …**. Previews of these
+  pipelines use at most 50 documents, because each document is one model request.
+
+## Automation: CLI, API and MCP
+
+- **`aeon` CLI.** Does what the app does from a terminal: `aeon -w <workspace> run
+  preset:fineweb "My data"`.
+- **Local API.** Settings → **Local API → Turn on** serves the open workspace on
+  `http://127.0.0.1:7878/api/v1`, protected by a token (click Show to see it). Jobs started
+  through it appear in Jobs.
+- **MCP.** `aeon mcp` lets Claude Desktop, Claude Code and other MCP clients work with your
+  datasets. Its tools can't delete anything.
+
+See [api.md](api.md) for every command and endpoint.
+
+## Appearance
+
+Settings → **Appearance** switches between System, Light, Dark, Midnight, Forest, Ember,
+Paper and High contrast.
+- **New custom theme** copies the colors on screen into a theme you can edit color by color.
+- **Share this theme** shows it as JSON, and **Import theme…** adds a theme someone shared.
+
 ## Updates
 
 **Settings → Updates** checks for a new version and installs it (the app restarts). When one is
@@ -154,7 +187,8 @@ workspace/
 
 ## Known limitations of the alpha
 
-- No benchmark decontamination or model-based quality filters yet.
+- No benchmark decontamination yet. Model-based quality filters come as plugins or LLM steps,
+  not built in.
 - The document browser's search scans without an index (bounded to 2 seconds per page); the
   SQL page is faster for searching large datasets.
 - Personal-information masking is pattern-based: emails, phone numbers, IPs and card numbers,

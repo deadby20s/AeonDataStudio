@@ -43,10 +43,10 @@ jobs:
         run: mkdir -p dist
 
       - name: Tests
-        run: cargo test -p aeondatastudio -p aeon-shared -p aeondatastudio-ui
+        run: cargo test -p aeon-core -p aeon-cli -p aeondatastudio -p aeon-shared -p aeondatastudio-ui
 
       - name: Clippy
-        run: cargo clippy -p aeondatastudio -p aeondatastudio-ui -p aeon-shared -- -D warnings
+        run: cargo clippy -p aeon-core -p aeon-cli -p aeondatastudio -p aeondatastudio-ui -p aeon-shared --all-targets -- -D warnings
 
       - name: Build frontend (WebAssembly)
         run: cargo build -p aeondatastudio-ui --target wasm32-unknown-unknown

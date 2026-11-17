@@ -29,6 +29,59 @@ pub struct AppInfo {
     pub recent_workspaces: Vec<String>,
 }
 
+/// A plugin found in the workspace's `plugins/` folder (from its `plugin.toml`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PluginInfo {
+    /// Folder name; what a pipeline's plugin step refers to.
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    /// The command that is run, as written in plugin.toml.
+    pub command: Vec<String>,
+    pub options: Vec<PluginOption>,
+    /// Set when plugin.toml could not be read.
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PluginOption {
+    pub key: String,
+    #[serde(default)]
+    pub default: String,
+    #[serde(default)]
+    pub help: String,
+}
+
+/// A color theme: CSS variable values over the built-in dark theme.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Theme {
+    pub name: String,
+    /// `--bg` → `#101418`, etc. Only the listed variables change.
+    #[serde(default)]
+    pub vars: std::collections::BTreeMap<String, String>,
+}
+
+/// Appearance settings, stored with the app settings.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ThemeSettings {
+    /// Name of the active theme (built-in or custom). Empty means the default.
+    #[serde(default)]
+    pub active: String,
+    #[serde(default)]
+    pub custom: Vec<Theme>,
+}
+
+/// State of the local HTTP API in the desktop app.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct ApiStatus {
+    pub running: bool,
+    /// e.g. `http://127.0.0.1:7878`.
+    pub url: Option<String>,
+    /// Bearer token clients must send. Only shown in the app.
+    pub token: Option<String>,
+    pub error: Option<String>,
+}
+
 /// A view the SQL explorer offers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SqlTable {

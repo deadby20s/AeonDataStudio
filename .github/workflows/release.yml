@@ -79,6 +79,7 @@ jobs:
           node-version: 22
 
       - name: Build installers
+        id: tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -91,6 +92,36 @@ jobs:
           releaseBody: "See CHANGELOG.md for what's new. Installers are not code-signed: on Windows, SmartScreen may warn (More info → Run anyway); on macOS, right-click the app → Open the first time."
           releaseDraft: true
           prerelease: true
+
+      # The `aeon` command-line tool (CLI, local API server, MCP server), one binary per platform.
+      - name: Build the aeon CLI
+        shell: bash
+        run: |
+          cargo build --release -p aeon-cli ${{ matrix.args }}
+          dir=target/release
+          [ -n "${{ matrix.args }}" ] && dir=target/$(echo "${{ matrix.args }}" | awk '{print $2}')/release
+          ext=""; [ "${{ runner.os }}" = "Windows" ] && ext=".exe"
+          mkdir -p cli-dist
+          cp "$dir/aeon$ext" "cli-dist/aeon-${{ matrix.name }}$ext"
+
+      - name: Attach the CLI to the release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for f in cli-dist/*; do
+            curl --fail -sS -X POST               -H "Authorization: Bearer $GITHUB_TOKEN"               -H "Content-Type: application/octet-stream"               --data-binary @"$f"               "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ steps.tauri.outputs.releaseId }}/assets?name=$(basename "$f")"
+          done
+
+      - name: Keep the CLI as a workflow artifact
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.name }}
+          path: cli-dist/*
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Keep installers as workflow artifacts
         if: github.ref_type != 'tag'

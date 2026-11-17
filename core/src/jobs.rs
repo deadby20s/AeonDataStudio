@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use aeon_shared::{JOB_UPDATE_EVENT, JobId, JobKind, JobLink, JobState, JobStatus, Progress};
+use aeon_shared::{JobId, JobKind, JobLink, JobState, JobStatus, Progress};
 
 use crate::error::{AppError, AppResult, now_ms};
 
@@ -19,16 +19,26 @@ const PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
 /// Finished jobs kept in the list before the oldest are dropped.
 const MAX_FINISHED_JOBS: usize = 50;
 
-/// Where job status updates are sent. Implemented for `tauri::AppHandle`; tests use a recorder.
+/// Where job status updates are sent: the desktop app forwards them to the window, the CLI
+/// prints them, and tests record them.
 pub trait JobEvents: Send + Sync + 'static {
     fn job_updated(&self, status: &JobStatus);
 }
 
-impl<R: tauri::Runtime> JobEvents for tauri::AppHandle<R> {
+/// Sends updates nowhere (status is still available from [`JobManager::list`]).
+pub struct NoEvents;
+
+impl JobEvents for NoEvents {
+    fn job_updated(&self, _: &JobStatus) {}
+}
+
+/// Forwards updates to several listeners (e.g. the window and the local API's watchers).
+pub struct FanOut(pub Vec<Arc<dyn JobEvents>>);
+
+impl JobEvents for FanOut {
     fn job_updated(&self, status: &JobStatus) {
-        use tauri::Emitter;
-        if let Err(e) = self.emit(JOB_UPDATE_EVENT, status) {
-            log::warn!("failed to emit job update: {e}");
+        for e in &self.0 {
+            e.job_updated(status);
         }
     }
 }
@@ -128,9 +138,16 @@ impl JobManager {
                             s.state = JobState::Failed;
                             s.message = Some(e.to_string());
                         }
-                        Err(_) => {
+                        Err(panic) => {
                             s.state = JobState::Failed;
-                            s.message = Some("The job crashed unexpectedly".into());
+                            let what = panic
+                                .downcast_ref::<&str>()
+                                .map(|s| s.to_string())
+                                .or_else(|| panic.downcast_ref::<String>().cloned());
+                            s.message = Some(match what {
+                                Some(w) => format!("The job stopped: {w}"),
+                                None => "The job crashed unexpectedly".into(),
+                            });
                         }
                     }
                 });
@@ -153,6 +170,10 @@ impl JobManager {
         let mut list: Vec<_> = self.lock()?.values().map(|e| e.status.clone()).collect();
         list.sort_by_key(|j| std::cmp::Reverse(j.id));
         Ok(list)
+    }
+
+    pub fn get(&self, id: JobId) -> AppResult<JobStatus> {
+        self.lock()?.get(&id).map(|e| e.status.clone()).ok_or(AppError::JobNotFound(id))
     }
 
     pub fn clear_finished(&self) -> AppResult<()> {
