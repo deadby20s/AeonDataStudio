@@ -69,9 +69,9 @@ AeonDataStudio/
 ├── public/             # static assets copied into dist/
 ├── shared/             # types shared by frontend and backend
 ├── core/               # aeon-core: the engine (no UI); ops.rs, api.rs, mcp.rs, plugins.rs, llm.rs
-├── cli/                # aeon-cli: the `aeon` binary (CLI, `serve`, `mcp`)
+├── cli/                # aeon-cli: the `aeon` CLI as a library (CLI, `serve`, `mcp`)
 ├── src/                # Leptos frontend (WASM)
-├── src-tauri/          # Tauri app: commands.rs wraps aeon-core for the window
+├── src-tauri/          # Tauri app: commands.rs wraps aeon-core; src/bin/aeon.rs is the CLI binary
 │   ├── src/lib.rs      # app setup and command registration
 │   ├── capabilities/   # permissions granted to the window
 │   └── tauri.conf.json

@@ -1,5 +1,8 @@
 //! `aeon`: AeonDataStudio without the window.
 //!
+//! The binary is `src-tauri/src/bin/aeon.rs`, a second binary of the desktop app package: the
+//! app's release build compiles both in one Cargo run (same dependency features, so nothing is
+//! built twice), and the installers include it. Run it with `cargo run --bin aeon -- ...`.
 //! Works on the same workspace folders as the desktop app. Every command goes through the
 //! local API router, so the CLI, the HTTP API, the MCP server and the app behave the same.
 
@@ -169,7 +172,8 @@ fn fail(msg: impl std::fmt::Display) -> ExitCode {
     ExitCode::FAILURE
 }
 
-fn main() -> ExitCode {
+/// Parses the command line and runs it.
+pub fn run() -> ExitCode {
     let cli = Cli::parse();
     let quiet_progress = matches!(cli.command, Cmd::Mcp | Cmd::Serve { .. });
     let events: Arc<dyn JobEvents> =
@@ -216,7 +220,7 @@ fn main() -> ExitCode {
         None => {}
     }
 
-    match run(&cli, &state) {
+    match execute(&cli, &state) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => fail(e),
     }
@@ -309,7 +313,7 @@ fn num(v: &Value) -> String {
     }
 }
 
-fn run(cli: &Cli, state: &Arc<AppState>) -> Result<(), String> {
+fn execute(cli: &Cli, state: &Arc<AppState>) -> Result<(), String> {
     let print = |v: &Value| println!("{}", serde_json::to_string_pretty(v).unwrap_or_default());
     match &cli.command {
         Cmd::Init { .. } => unreachable!("handled before"),

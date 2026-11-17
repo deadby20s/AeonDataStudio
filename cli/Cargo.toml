@@ -1,13 +1,13 @@
 [package]
 name = "aeon-cli"
 version = "0.3.0"
-description = "AeonDataStudio on the command line: run pipelines, serve the local API and the MCP server"
+description = "The aeon command-line tool (built as a binary of the desktop app package): run pipelines, serve the local API and the MCP server"
 edition = "2024"
 license = "MIT"
 
-[[bin]]
-name = "aeon"
-path = "src/main.rs"
+[lib]
+name = "aeon_cli"
+path = "src/lib.rs"
 
 [dependencies]
 aeon-core = { path = "../core", default-features = false }

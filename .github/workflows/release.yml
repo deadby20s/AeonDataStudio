@@ -4,6 +4,11 @@
 #   for that tag; review the draft on GitHub and publish it.
 # - Pull requests that change this file, and manual runs, only build and keep the installers
 #   as workflow artifacts (no release), so the workflow can be checked safely.
+# - Pushes to main compile without bundling, only to save the build cache. Caches saved on a
+#   tag can't be read by later tags, but caches saved on main can, so tag builds reuse
+#   compiled dependencies (DuckDB alone takes 10-15 minutes per platform).
+# - The `aeon` CLI is a second binary of the app package (src-tauri/src/bin/aeon.rs), so the
+#   same Cargo run builds it and the installers include it; it is also attached on its own.
 #
 # The version in the installers comes from src-tauri/tauri.conf.json, so bump it before tagging.
 # In-app updates: see docs/development.md ("Auto-updates") for the signing key setup.
@@ -12,12 +17,18 @@ name: Release
 on:
   push:
     tags: ["v*"]
+    branches: [main]
   pull_request:
     paths: [".github/workflows/release.yml"]
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  # A newer push to main replaces an older cache build; tag builds always finish.
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -68,6 +79,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.name }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Trunk
         uses: taiki-e/install-action@v2
@@ -78,8 +90,14 @@ jobs:
         with:
           node-version: 22
 
+      # Same Cargo command as the installer build below, so the cache matches it exactly.
+      - name: Compile (cache only)
+        if: github.ref == 'refs/heads/main'
+        run: npx --yes @tauri-apps/cli@2 build --no-bundle ${{ matrix.args }}
+
       - name: Build installers
         id: tauri
+        if: github.ref != 'refs/heads/main'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -93,11 +111,11 @@ jobs:
           releaseDraft: true
           prerelease: true
 
-      # The `aeon` command-line tool (CLI, local API server, MCP server), one binary per platform.
-      - name: Build the aeon CLI
+      # The `aeon` command-line tool (CLI, local API server, MCP server), built with the app.
+      - name: Collect the aeon CLI
+        if: github.ref != 'refs/heads/main'
         shell: bash
         run: |
-          cargo build --release -p aeon-cli ${{ matrix.args }}
           dir=target/release
           [ -n "${{ matrix.args }}" ] && dir=target/$(echo "${{ matrix.args }}" | awk '{print $2}')/release
           ext=""; [ "${{ runner.os }}" = "Windows" ] && ext=".exe"
@@ -115,7 +133,7 @@ jobs:
           done
 
       - name: Keep the CLI as a workflow artifact
-        if: github.ref_type != 'tag'
+        if: github.ref_type != 'tag' && github.ref != 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: cli-${{ matrix.name }}
@@ -124,7 +142,7 @@ jobs:
           retention-days: 14
 
       - name: Keep installers as workflow artifacts
-        if: github.ref_type != 'tag'
+        if: github.ref_type != 'tag' && github.ref != 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: installers-${{ matrix.name }}

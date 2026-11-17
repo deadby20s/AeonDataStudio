@@ -10,8 +10,17 @@ same engine (`aeon-core`) and work on the same workspace folders as the app:
 
 ## The `aeon` CLI
 
-Release pages have an `aeon` binary for each platform (`aeon-windows-x64.exe`, …). To build
-it yourself, run `cargo build --release -p aeon-cli` (the binary ends up in `target/release/`).
+`aeon` comes with the app:
+
+| System | Location after installing |
+|---|---|
+| Windows | Next to `AeonDataStudio.exe` in the install folder |
+| macOS | `/Applications/AeonDataStudio.app/Contents/MacOS/aeon` |
+| Linux (`.deb` / `.rpm`) | `/usr/bin/aeon` |
+
+Release pages also have it on its own (`aeon-windows-x64.exe`, `aeon-linux-x64`, …). To build
+it from source, run `cargo build --release --bin aeon` (the binary ends up in
+`target/release/`).
 
 ```bash
 aeon init ./my-workspace                  # create a workspace in an empty folder
