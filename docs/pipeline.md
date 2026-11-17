@@ -46,7 +46,16 @@ column fails the whole import with a message naming the available fields.
 text bytes, shortest/longest document, and a length histogram with power-of-two bins
 (0-64, 64-128, ... >=128K characters).
 
-*Planned:* HTML extraction, source-code files, WARC.
+**HTML and WARC** *(added after the alpha)*: `.html`/`.htm` files are one document each;
+`.warc` / `.warc.gz` web archives (Common Crawl format) give one document per WARC `response`
+record that is an HTTP 200 HTML page (requests, metadata, redirects and non-HTML responses are
+skipped). Main text is extracted with html5ever: `script`, `style`, `noscript`, `nav`,
+`header`, `footer`, `aside`, `form` and hidden elements are dropped; headings, paragraphs, list
+items, table cells and `pre` blocks become paragraphs; `<article>`/`<main>` is used when it holds
+at least half of the page text. Metadata: `title`, and for WARC `url`, `date`; the WARC record
+id becomes the document id.
+
+*Planned:* source-code files.
 
 ## 2. Normalize *(built in M2)*
 
@@ -59,7 +68,9 @@ left with no visible text (rule `empty_after_step`).
 | `clean_characters` | Fixes mojibake (UTF-8 read as Windows-1252, e.g. `cafÃ©` → `café`; only when the whole text can be reversed and the result has fewer telltale sequences), removes control characters (keeps `\n`, `\t`, `\r`) and zero-width characters, replaces non-breaking spaces. |
 | `normalize_whitespace` | Unifies line endings to `\n`, trims trailing spaces, collapses runs of spaces/tabs (indentation kept), limits consecutive blank lines, trims the document. |
 
-*Planned:* HTML/boilerplate stripping, PII masking.
+| `mask_pii` *(after the alpha)* | Replaces email addresses with `<EMAIL>`, phone numbers (9–15 digits in a phone-like format; dates excluded) with `<PHONE>`, IPv4 and full IPv6 addresses with `<IP>`, and 13–19-digit numbers passing the Luhn check with `<CARD>`. Each kind can be turned off. |
+
+PII masking is pattern-based; it does not detect names or postal addresses.
 
 ## 3. Filter *(heuristic filters built in M2)*
 
