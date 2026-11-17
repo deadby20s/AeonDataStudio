@@ -25,7 +25,11 @@ Start with the **[user guide](docs/user-guide.md)**.
 
 ## Install
 
-Build an installer (Windows: `.msi` and `.exe` in `target/release/bundle/`):
+Download an installer from the [Releases page](https://github.com/deadby20s/AeonDataStudio/releases).
+The installers are not code-signed yet: on Windows, SmartScreen may warn (More info → Run
+anyway); on macOS, right-click the app and choose Open the first time.
+
+Or build one yourself (installers end up in `target/release/bundle/`):
 
 ```bash
 rustup target add wasm32-unknown-unknown

@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest something that would make AeonDataStudio more useful for your data work.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The task or workflow, and where the app gets in the way today.
+      placeholder: e.g. My raw data is Common Crawl WARC files and I extract text with a separate script first…
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+      description: How you imagine it working, if you have an idea.
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Data sizes, other tools you use for this today, links to papers or pipelines.
