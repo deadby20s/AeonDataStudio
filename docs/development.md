@@ -34,6 +34,24 @@ cargo tauri build
 ```
 
 Produces `target/release/bundle/msi/*.msi` and `target/release/bundle/nsis/*-setup.exe`.
+
+## Continuous integration and releases
+
+- `.github/workflows/ci.yml` runs the tests, clippy (warnings are errors) and a WebAssembly
+  build on Linux and Windows for every push to `main` and every pull request.
+- `.github/workflows/release.yml` builds installers for Windows (`.msi`, `.exe`), macOS
+  (`.dmg`, Apple silicon and Intel) and Linux (`.deb`, `.rpm`, `.AppImage`).
+
+To publish a release:
+
+1. Bump `version` in `src-tauri/tauri.conf.json` (and the crates' `Cargo.toml`), and add a
+   section to `CHANGELOG.md`.
+2. Push a tag: `git tag -a v0.1.1-alpha -m "..." && git push origin v0.1.1-alpha`.
+3. The workflow uploads all installers to a **draft** pre-release for that tag. Check it on
+   GitHub, then publish it.
+
+Pull requests that change `release.yml`, and manual runs (Actions → Release → Run workflow),
+only build and keep the installers as workflow artifacts for 14 days.
 Always try the release build after changing the CSP in `tauri.conf.json`: dev mode does not
 enforce it.
 

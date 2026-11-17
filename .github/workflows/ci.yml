@@ -1,0 +1,52 @@
+# Tests, lints and a frontend build on every push to main and every pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # tauri-build expects the frontend output folder to exist.
+      - name: Create dist folder
+        shell: bash
+        run: mkdir -p dist
+
+      - name: Tests
+        run: cargo test -p aeondatastudio -p aeon-shared -p aeondatastudio-ui
+
+      - name: Clippy
+        run: cargo clippy -p aeondatastudio -p aeondatastudio-ui -p aeon-shared -- -D warnings
+
+      - name: Build frontend (WebAssembly)
+        run: cargo build -p aeondatastudio-ui --target wasm32-unknown-unknown
