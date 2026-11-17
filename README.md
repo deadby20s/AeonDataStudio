@@ -5,7 +5,7 @@ data, clean it with normalizers, quality filters and deduplication, see exactly 
 or changed and why, and export training-ready JSONL, Parquet or tokenized shards. Everything
 runs locally.
 
-**Status: alpha (0.3 in progress).** The whole workflow works end to end; expect rough edges. See the
+**Status: 0.3 alpha.** The whole workflow works end to end; expect rough edges. See the
 [changelog](CHANGELOG.md) and [roadmap](docs/roadmap.md).
 
 ## What it does
