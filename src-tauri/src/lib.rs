@@ -1,5 +1,6 @@
 mod catalog;
 mod commands;
+mod demo;
 mod dataset;
 mod error;
 mod export;
@@ -22,6 +23,18 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            // Writes AeonDataStudio.log to the OS log folder (Settings → Open log folder).
+            tauri_plugin_log::Builder::new()
+                .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                    file_name: Some("AeonDataStudio".into()),
+                }))
+                .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout))
+                .level(log::LevelFilter::Info)
+                .max_file_size(5 * 1024 * 1024)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                .build(),
+        )
         .setup(|app| {
             let settings_path: PathBuf = app.path().app_config_dir()?.join("settings.json");
             let jobs = JobManager::new(std::sync::Arc::new(app.handle().clone()));
@@ -34,6 +47,7 @@ pub fn run() {
                     log::warn!("could not reopen workspace {last}: {e}");
                 }
 
+            log::info!("AeonDataStudio {} started", app.package_info().version);
             app.manage(state);
             Ok(())
         })
@@ -71,6 +85,8 @@ pub fn run() {
             commands::pick_tokenizer_file,
             commands::start_mix,
             commands::preview_import,
+            commands::create_demo_dataset,
+            commands::open_log_folder,
             commands::list_jobs,
             commands::cancel_job,
             commands::clear_finished_jobs,

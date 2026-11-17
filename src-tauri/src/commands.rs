@@ -15,7 +15,7 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::dataset::{self, DatasetReader};
 use crate::error::{AppError, AppResult};
-use crate::{export, import, jobs, mix, pipeline};
+use crate::{demo, export, import, jobs, mix, pipeline};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -417,4 +417,50 @@ pub async fn preview_import(
     text_mode: TextMode,
 ) -> AppResult<ImportPreview> {
     blocking(move || import::preview(&paths, format, &text_field, text_mode)).await
+}
+
+// ---------------------------------------------------------------------------------------------
+// Demo data and logs
+// ---------------------------------------------------------------------------------------------
+
+/// Generates the demo dataset (as an import job) and saves a "Demo cleanup" pipeline.
+#[tauri::command]
+pub fn create_demo_dataset(state: State<'_, AppState>) -> AppResult<JobId> {
+    let ws = state.workspace()?;
+    // The template recipe, so testers can run it straight away. Keep an existing one.
+    let _ = pipeline::save_pipeline(&ws.pipelines_dir(), &aeon_shared::PipelineSpec::template("Demo cleanup"), None);
+    state.jobs.spawn(JobKind::Import, format!("Import \"{}\"", demo::DATASET_NAME), move |ctx| {
+        ctx.progress(0, None, Some("Generating demo documents…".into()));
+        let file = std::env::temp_dir().join(format!("aeondatastudio-demo-{}.jsonl", ctx_id_suffix()));
+        demo::write_jsonl(&file)?;
+        let req = ImportRequest {
+            name: demo::DATASET_NAME.into(),
+            description: Some("Generated sample with planted problems; each document's meta.category says what it is.".into()),
+            paths: vec![file.display().to_string()],
+            format: ImportFormat::Jsonl,
+            text_field: "text".into(),
+            id_field: Some("id".into()),
+            text_mode: TextMode::WholeFile,
+        };
+        let result = import::run(ctx, ws, req);
+        let _ = std::fs::remove_file(&file);
+        result
+    })
+}
+
+fn ctx_id_suffix() -> String {
+    crate::error::now_ms().to_string()
+}
+
+/// Opens the folder with AeonDataStudio.log in the system file manager.
+#[tauri::command]
+pub fn open_log_folder(app: AppHandle) -> AppResult<String> {
+    use tauri::Manager;
+    use tauri_plugin_opener::OpenerExt;
+    let dir = app.path().app_log_dir()?;
+    std::fs::create_dir_all(&dir)?;
+    app.opener()
+        .open_path(dir.display().to_string(), None::<&str>)
+        .map_err(|e| AppError::Internal(format!("Could not open the folder: {e}")))?;
+    Ok(dir.display().to_string())
 }

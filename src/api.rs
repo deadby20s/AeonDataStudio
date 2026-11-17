@@ -341,6 +341,15 @@ pub async fn preview_import(
     call("preview_import", &PreviewImportArgs { paths, format, text_field, text_mode }).await
 }
 
+pub async fn create_demo_dataset() -> ApiResult<JobId> {
+    call("create_demo_dataset", &NoArgs {}).await
+}
+
+/// Opens the log folder; returns its path.
+pub async fn open_log_folder() -> ApiResult<String> {
+    call("open_log_folder", &NoArgs {}).await
+}
+
 pub async fn list_jobs() -> ApiResult<Vec<JobStatus>> {
     call("list_jobs", &NoArgs {}).await
 }

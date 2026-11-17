@@ -75,6 +75,7 @@ impl JobManager {
             finished_at_ms: None,
             link: None,
         };
+        log::info!("job {id} started: {:?} \"{}\"", status.kind, status.title);
         self.lock()?.insert(id, JobEntry { status: status.clone(), cancel: cancel.clone() });
         self.events.job_updated(&status);
 
@@ -85,7 +86,23 @@ impl JobManager {
                 let mut ctx = JobCtx { id, manager: Arc::clone(&manager), cancel, last_emit: None };
                 manager.update(id, |s| s.state = JobState::Running);
 
+                let started = std::time::Instant::now();
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&mut ctx)));
+                let secs = started.elapsed().as_secs_f64();
+                match &result {
+                    Ok(Ok(JobOutcome::Completed(msg))) => log::info!("job {id} completed in {secs:.1}s: {}", msg.as_deref().unwrap_or("")),
+                    Ok(Ok(JobOutcome::Produced(msg, _))) => log::info!("job {id} completed in {secs:.1}s: {msg}"),
+                    Ok(Ok(JobOutcome::Cancelled)) => log::info!("job {id} cancelled after {secs:.1}s"),
+                    Ok(Err(e)) => log::error!("job {id} failed after {secs:.1}s: {e}"),
+                    Err(panic) => {
+                        let what = panic
+                            .downcast_ref::<&str>()
+                            .map(|s| s.to_string())
+                            .or_else(|| panic.downcast_ref::<String>().cloned())
+                            .unwrap_or_default();
+                        log::error!("job {id} crashed after {secs:.1}s: {what}");
+                    }
+                }
                 manager.update(id, |s| {
                     s.finished_at_ms = Some(now_ms());
                     match result {

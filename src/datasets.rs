@@ -146,6 +146,18 @@ fn DatasetList() -> impl IntoView {
                         <p class="muted">
                             "Import JSONL, JSON, text, CSV/TSV or Parquet files (optionally .gz or .zst compressed) to create one."
                         </p>
+                        <p class="muted">
+                            "Just trying the app? Create a demo dataset: 3,000 generated web pages with planted problems (duplicates, spam, menus, other languages, broken encoding) and a matching “Demo cleanup” pipeline."
+                        </p>
+                        <button on:click=move |_| {
+                            spawn_local(async move {
+                                if let Err(e) = api::create_demo_dataset().await {
+                                    error.set(Some(e.to_string()));
+                                }
+                            });
+                        }>
+                            "Create demo dataset"
+                        </button>
                     </div>
                 }
                     .into_any()

@@ -14,6 +14,11 @@ A workspace is a folder that holds everything: datasets, pipelines, runs and exp
 
 The app reopens the last workspace on start. **Settings → Close workspace** switches.
 
+**Just trying the app?** In an empty workspace, **Datasets → Create demo dataset** (also in
+Settings) adds 3,000 generated web pages with planted problems (duplicates, spam, menus, other
+languages, broken encoding, …) and a matching **Demo cleanup** pipeline. Each document's
+`meta.category` says what it contains, so you can check what each step caught.
+
 ## 2. Import data
 
 **Datasets → Import…**
@@ -102,6 +107,11 @@ tokens = np.fromfile("tokens-00000.bin", dtype=np.uint32)   # dtype from manifes
 offsets = np.fromfile("tokens-00000.idx", dtype=np.uint64)
 doc_3 = tokens[offsets[3]:offsets[4]]
 ```
+
+## Logs
+
+**Settings → Open log folder** opens the folder with `AeonDataStudio.log`, which records each
+job's start, end and errors. Please attach it to bug reports.
 
 ## Jobs
 
