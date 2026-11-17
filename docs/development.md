@@ -68,20 +68,27 @@ AeonDataStudio/
 ├── styles.css
 ├── public/             # static assets copied into dist/
 ├── shared/             # types shared by frontend and backend
+├── core/               # aeon-core: the engine (no UI); ops.rs, api.rs, mcp.rs, plugins.rs, llm.rs
+├── cli/                # aeon-cli: the `aeon` binary (CLI, `serve`, `mcp`)
 ├── src/                # Leptos frontend (WASM)
-├── src-tauri/          # Tauri backend
+├── src-tauri/          # Tauri app: commands.rs wraps aeon-core for the window
 │   ├── src/lib.rs      # app setup and command registration
 │   ├── capabilities/   # permissions granted to the window
 │   └── tauri.conf.json
+├── examples/plugins/   # example plugins
 └── docs/               # this documentation
 ```
 
 ## Conventions
 
-**Adding a backend command**
-1. Write the function in `src-tauri/src/commands.rs` (split into a `commands/` folder once it
-   grows), marked `#[tauri::command]`. Return `AppResult<T>` rather than panicking.
-2. Register it in `tauri::generate_handler![...]` in `src-tauri/src/lib.rs`.
+**Adding an operation**
+1. Write it as a method on `AppState` in `core/src/ops.rs`. Return `AppResult<T>`; anything
+   slow starts a job. The CLI, API and MCP server can then reach it.
+2. Expose it where it's needed:
+   - the HTTP API: a route in `core/src/api.rs` `handle` (and a line in docs/api.md);
+   - MCP: a tool in `core/src/mcp.rs` that calls that route;
+   - the app: a thin `#[tauri::command]` in `src-tauri/src/commands.rs`, registered in
+     `tauri::generate_handler![...]` in `src-tauri/src/lib.rs`.
 3. Add a typed wrapper in `src/api.rs` so components never call `invoke` with raw strings.
    Argument structs use `#[serde(rename_all = "camelCase")]`: Tauri expects `jobId` for a
    Rust parameter named `job_id`.

@@ -126,6 +126,9 @@ pub fn App() -> impl IntoView {
     provide_context(ctx);
 
     spawn_local(async move {
+        if let Ok(t) = api::get_theme_settings().await {
+            crate::theme::apply(&t);
+        }
         let result: api::ApiResult<()> = async {
             ctx.refresh().await?;
             for job in api::list_jobs().await? {

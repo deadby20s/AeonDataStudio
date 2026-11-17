@@ -1,6 +1,6 @@
 [package]
 name = "aeondatastudio"
-version = "0.2.0"
+version = "0.3.0"
 description = "Personal data studio for preparing AI pretraining data"
 edition = "2024"
 license = "MIT"
@@ -18,6 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+aeon-core = { path = "../core", default-features = false }
 aeon-shared = { path = "../shared" }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
@@ -27,35 +28,10 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-rusqlite = { version = "0.42", features = ["bundled"] }
-thiserror = "2"
-parquet = "60"
-arrow = { version = "60", default-features = false, features = ["json"] }
-csv = "1"
-flate2 = "1"
-# Same major version as parquet uses, so only one copy of the zstd C library is linked.
-zstd = "0.14"
-rayon = "1"
-unicode-normalization = "0.1"
-whatlang = "0.18"
-encoding_rs = "0.8"
-regex = "1"
-scraper = "0.29"
-# SQL explorer; a large C++ build, so it can be left out with --no-default-features.
-duckdb = { version = "1", features = ["bundled"], optional = true }
-xxhash-rust = { version = "0.8", features = ["xxh3"] }
-sha2 = "0.10"
-hex = "0.4"
-tiktoken-rs = "0.12"
-tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
-toml = "1"
 log = "0.4"
 
 [features]
 default = ["sql"]
-sql = ["dep:duckdb"]
-
-[dev-dependencies]
-tempfile = "3"
+sql = ["aeon-core/sql"]
 
 # The release profile lives in the workspace root Cargo.toml; Cargo ignores it here.

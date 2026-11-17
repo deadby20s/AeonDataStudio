@@ -5,7 +5,7 @@ data, clean it with normalizers, quality filters and deduplication, see exactly 
 or changed and why, and export training-ready JSONL, Parquet or tokenized shards. Everything
 runs locally.
 
-**Status: 0.1 alpha.** The whole workflow works end to end; expect rough edges. See the
+**Status: alpha (0.3 in progress).** The whole workflow works end to end; expect rough edges. See the
 [changelog](CHANGELOG.md) and [roadmap](docs/roadmap.md).
 
 ## What it does
@@ -20,6 +20,10 @@ runs locally.
 - **Mix** datasets with weights and a seeded shuffle.
 - **Export** JSONL/Parquet or token shards (tiktoken or any Hugging Face tokenizer), with a
   manifest and SHA-256 checksums.
+- **Extend** with plugins (any program that reads JSON lines) and language-model steps
+  through any OpenAI-compatible server, including ready-made data recipes (educational-quality
+  scoring, rephrasing, synthetic Q&A).
+- **Automate** with the `aeon` CLI, a local HTTP API, and an MCP server for AI assistants.
 
 Start with the **[user guide](docs/user-guide.md)**.
 
@@ -44,7 +48,7 @@ cargo tauri dev
 ```
 
 ```bash
-cargo test -p aeondatastudio -p aeon-shared -p aeondatastudio-ui
+cargo test -p aeon-core -p aeon-cli -p aeondatastudio -p aeon-shared -p aeondatastudio-ui
 ```
 
 Built with [Tauri 2](https://tauri.app) (Rust backend) and [Leptos](https://leptos.dev)
@@ -58,6 +62,8 @@ See [docs/](docs/README.md):
 - [Overview](docs/overview.md): goals and core concepts
 - [Architecture](docs/architecture.md): how the app is structured, and the decision log
 - [Data pipeline](docs/pipeline.md): every stage, step and file format in detail
+- [Plugins](docs/plugins.md): writing and installing plugins
+- [CLI, API and MCP](docs/api.md): using the studio from scripts and AI assistants
 - [Development](docs/development.md): setup and conventions
 - [Roadmap](docs/roadmap.md)
 

@@ -69,7 +69,11 @@ pub fn build(config: &StepConfig) -> AppResult<Box<dyn Step>> {
             }
             Box::new(c.clone())
         }
-        StepConfig::ExactDedup(_) | StepConfig::NearDedup(_) => {
+        StepConfig::ExactDedup(_)
+        | StepConfig::NearDedup(_)
+        | StepConfig::Plugin(_)
+        | StepConfig::LlmScore(_)
+        | StepConfig::LlmRewrite(_) => {
             return Err(AppError::Internal("dedup steps are compiled by the pipeline, not as document steps".into()));
         }
     })

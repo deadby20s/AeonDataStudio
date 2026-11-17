@@ -1,0 +1,13 @@
+name = "Word list filter"
+description = "Drops documents that use listed words too often (per 1,000 words). No dependencies besides Python."
+command = ["python", "main.py"]
+
+[[options]]
+key = "words"
+default = "casino,viagra,crypto giveaway,click here"
+help = "Comma-separated words or phrases (case-insensitive)."
+
+[[options]]
+key = "max_per_1000_words"
+default = "2"
+help = "Documents with more matches per 1,000 words are dropped."

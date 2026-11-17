@@ -1,0 +1,15 @@
+name = "FineWeb-Edu classifier"
+description = "Scores educational value 0–5 with the HuggingFaceFW/fineweb-edu-classifier model and drops low scores, as in FineWeb-Edu. Needs: pip install transformers torch. Runs on GPU if available."
+command = ["python", "main.py"]
+# One model copy per process; more workers need more memory.
+workers = 1
+
+[[options]]
+key = "min_score"
+default = "3"
+help = "FineWeb-Edu keeps documents scoring 3 or more."
+
+[[options]]
+key = "model"
+default = "HuggingFaceFW/fineweb-edu-classifier"
+help = "Hugging Face model id or local folder."

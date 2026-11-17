@@ -692,8 +692,8 @@ mod tests {
         assert_eq!(m.tokenizer.as_ref().unwrap().dtype, "uint16");
         let bin = std::fs::read(dir.join("tokens-00000.bin")).unwrap();
         let idx = std::fs::read(dir.join("tokens-00000.idx")).unwrap();
-        let ids: Vec<u32> = bin.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]]) as u32).collect();
-        let offs: Vec<u64> = idx.chunks_exact(8).map(|c| u64::from_le_bytes(c.try_into().unwrap())).collect();
+        let ids: Vec<u32> = bin.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c) as u32).collect();
+        let offs: Vec<u64> = idx.as_chunks::<8>().0.iter().map(|c| u64::from_le_bytes(*c)).collect();
         assert_eq!(offs.len(), 501);
         assert_eq!(*offs.last().unwrap() as usize, ids.len());
         assert_eq!(m.tokens, Some(ids.len() as u64));

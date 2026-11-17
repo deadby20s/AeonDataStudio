@@ -21,7 +21,7 @@ use crate::error::{AppError, AppResult, now_ms};
 
 pub const SETTINGS_FILE: &str = "studio.toml";
 pub const CATALOG_FILE: &str = "catalog.sqlite";
-pub const SUBDIRS: &[&str] = &["pipelines", "datasets", "runs", "exports"];
+pub const SUBDIRS: &[&str] = &["pipelines", "datasets", "runs", "exports", "plugins"];
 
 /// Bumped when the on-disk layout changes in a way older versions cannot read.
 pub const FORMAT_VERSION: u32 = 1;
@@ -114,6 +114,15 @@ impl Workspace {
 
     pub fn pipelines_dir(&self) -> PathBuf {
         self.root.join("pipelines")
+    }
+
+    pub fn plugins_dir(&self) -> PathBuf {
+        self.root.join("plugins")
+    }
+
+    /// What pipeline steps need from this workspace.
+    pub fn step_env(&self) -> crate::pipeline::StepEnv {
+        crate::pipeline::StepEnv { plugins_dir: Some(self.plugins_dir()) }
     }
 
     /// Folder of a run. The id is validated so it can't point outside the workspace.

@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.3.0 alpha (unreleased)
+
+Use the studio from scripts, servers and AI assistants. Extend it with plugins and
+language models. Pick your colors.
+
+### Added
+- **`aeon` command-line tool**: import, browse, preview, run, report, export and SQL without
+  the window. It works on the same workspaces as the app and takes pipelines by name, as a
+  `.toml` file, or as `preset:<id>`.
+- **Local HTTP API**: JSON over HTTP on 127.0.0.1 with a bearer token, from `aeon serve` or
+  from the app (Settings → Local API). Jobs started through the app's API show up on the Jobs
+  page.
+- **MCP server** (`aeon mcp`): lets Claude Desktop, Claude Code and other MCP clients explore
+  datasets, try pipelines, start runs and check what was removed. Its tools never delete
+  anything.
+- **Plugins**: a Plugin step runs a program from the workspace's `plugins/` folder on each
+  document (JSON lines over stdin/stdout). The program can keep, drop or rewrite the document.
+  Examples: a word-list filter, plus fastText and FineWeb-Edu classifier templates.
+- **Language-model steps** for any OpenAI-compatible server (Ollama, llama.cpp, LM Studio,
+  vLLM, hosted APIs):
+  - LLM quality score drops documents a model scores low, as in FineWeb-Edu.
+  - LLM rewrite replaces each document with the model's answer.
+  - API keys come from an environment variable and are never saved.
+  - Requests are retried, and you choose what happens when one still fails.
+- **Data recipes**: ready-made LLM pipelines for educational-quality filtering, WRAP-style
+  rephrasing, synthetic Q&A and summaries.
+- **Themes**: System, Light, Dark, Midnight, Forest, Ember, Paper and High contrast, plus custom
+  themes with a color editor. Themes can be shared as JSON.
+
+### Changed
+- The engine moved into its own crate (`aeon-core`), shared by the app, the CLI, the API and
+  the MCP server.
+- A step that calls a plugin or a model and fails stops the run with that error. It used to
+  crash the job.
+
 ## 0.2.0 alpha — 2026-11-17
 
 Installers for all three systems, Common Crawl import, published filter presets, and SQL.

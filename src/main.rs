@@ -8,7 +8,9 @@ mod inspector;
 mod pages;
 mod pipelines;
 mod runs;
+mod settings;
 mod sql;
+mod theme;
 
 use app::App;
 use leptos::prelude::*;

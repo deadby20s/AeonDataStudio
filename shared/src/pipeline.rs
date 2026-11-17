@@ -60,6 +60,9 @@ pub enum StepConfig {
     FineWebFilter(FineWebFilter),
     ExactDedup(ExactDedup),
     NearDedup(NearDedup),
+    Plugin(PluginStep),
+    LlmScore(LlmScore),
+    LlmRewrite(LlmRewrite),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -387,6 +390,129 @@ impl NearDedup {
     }
 }
 
+/// Runs a plugin from the workspace's `plugins/` folder on each document. The plugin can keep,
+/// drop or rewrite it. See docs/plugins.md.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PluginStep {
+    /// Folder name inside `plugins/`.
+    pub plugin: String,
+    /// `key=value` lines, passed to the plugin (they override the plugin's defaults).
+    pub options: Vec<String>,
+}
+
+/// What an LLM step does when a request still fails after retries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LlmOnError {
+    /// Stop the run with the error.
+    #[default]
+    Stop,
+    /// Keep the document unchanged.
+    Keep,
+    /// Drop the document (recorded with rule `llm_error`).
+    Drop,
+}
+
+/// Default server: Ollama's OpenAI-compatible endpoint on this computer.
+pub const DEFAULT_LLM_ENDPOINT: &str = "http://localhost:11434/v1";
+pub const DEFAULT_LLM_MODEL: &str = "llama3.2";
+
+/// Scores each document with a language model and drops low scores (like FineWeb-Edu's
+/// educational-quality annotations).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LlmScore {
+    /// OpenAI-compatible base URL, e.g. `http://localhost:11434/v1` (Ollama) or `https://api.openai.com/v1`.
+    pub endpoint: String,
+    pub model: String,
+    /// Name of the environment variable holding the API key (the key itself is never saved).
+    pub api_key_env: String,
+    /// `{text}` is replaced by the document. The answer's first number is the score.
+    pub prompt: String,
+    pub min_score: f64,
+    /// Longer documents are cut to this many characters before sending.
+    pub max_input_chars: u64,
+    pub on_error: LlmOnError,
+}
+
+impl Default for LlmScore {
+    fn default() -> Self {
+        Self {
+            endpoint: DEFAULT_LLM_ENDPOINT.into(),
+            model: DEFAULT_LLM_MODEL.into(),
+            api_key_env: String::new(),
+            prompt: EDU_SCORE_PROMPT.into(),
+            min_score: 3.0,
+            max_input_chars: 6000,
+            on_error: LlmOnError::Stop,
+        }
+    }
+}
+
+/// Replaces each document with a language model's answer: rephrasing, translation,
+/// summaries, or synthetic data such as question-answer pairs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LlmRewrite {
+    pub endpoint: String,
+    pub model: String,
+    pub api_key_env: String,
+    /// `{text}` is replaced by the document.
+    pub prompt: String,
+    pub temperature: f64,
+    pub max_tokens: u64,
+    pub max_input_chars: u64,
+    pub on_error: LlmOnError,
+}
+
+impl Default for LlmRewrite {
+    fn default() -> Self {
+        Self {
+            endpoint: DEFAULT_LLM_ENDPOINT.into(),
+            model: DEFAULT_LLM_MODEL.into(),
+            api_key_env: String::new(),
+            prompt: REPHRASE_PROMPT.into(),
+            temperature: 0.7,
+            max_tokens: 1024,
+            max_input_chars: 6000,
+            on_error: LlmOnError::Stop,
+        }
+    }
+}
+
+pub const EDU_SCORE_PROMPT: &str = "Below is an extract from a web page. Rate how useful it would be for teaching at school or university, on a scale from 0 to 5:
+
+0: no educational value (ads, navigation, spam, unreadable text)
+1: some basic facts, mixed with irrelevant or promotional content
+2: touches on an educational topic, but superficial or disorganized
+3: coherent and useful for learning, like an introductory text
+4: clear, focused and highly relevant for teaching, like a good textbook section
+5: outstanding: thorough, accurate and easy to follow
+
+Extract:
+{text}
+
+Answer with the score only, as a single number.";
+
+pub const REPHRASE_PROMPT: &str = "Rewrite the following text in clear, high-quality English, in the style of an encyclopedia article. Keep every fact; do not add information, and leave out ads, navigation and other clutter. Answer with the rewritten text only.
+
+Text:
+{text}";
+
+pub const QA_PROMPT: &str = "Read the following text and write 3 to 5 question-and-answer pairs that a student could learn from. Answer each question using only the text. Use this format, with a blank line between pairs:
+
+Question: ...
+Answer: ...
+
+Text:
+{text}";
+
+pub const SUMMARY_PROMPT: &str = "Write a short, factual summary (3 to 5 sentences) of the following text. Answer with the summary only.
+
+Text:
+{text}";
+
 // ---------------------------------------------------------------------------------------------
 // Step descriptions for the UI
 // ---------------------------------------------------------------------------------------------
@@ -399,6 +525,8 @@ pub enum StepCategory {
     Filter,
     /// Drops documents that repeat earlier ones. Needs a pass over the whole dataset.
     Dedup,
+    /// Calls something outside the app: a plugin program or a language model.
+    External,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -418,6 +546,12 @@ pub enum FieldKind {
     Choice(&'static [(&'static str, &'static str)]),
     /// List of strings, one per line in the UI.
     List,
+    /// A required number.
+    Number,
+    /// One line of text.
+    Text,
+    /// Several lines of text, such as a prompt.
+    LongText,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -623,6 +757,50 @@ pub static STEP_KINDS: &[StepKindInfo] = &[
         ],
         default: || StepConfig::NearDedup(NearDedup::default()),
     },
+    StepKindInfo {
+        kind: "plugin",
+        label: "Plugin",
+        category: StepCategory::External,
+        description: "Run a plugin from the workspace's plugins folder on each document: a program (Python, a binary, anything) that reads documents as JSON lines and answers keep, drop or new text. Use it for quality classifiers like fastText or FineWeb-Edu, custom filters or any tool you already have. Settings → Plugins lists the installed ones.",
+        fields: &[
+            field("plugin", "Plugin", Text, "Folder name inside plugins/, e.g. wordlist-filter."),
+            field("options", "Options", List, "key=value, one per line. Overrides the plugin's defaults."),
+        ],
+        default: || StepConfig::Plugin(PluginStep::default()),
+    },
+    StepKindInfo {
+        kind: "llm_score",
+        label: "LLM quality score",
+        category: StepCategory::External,
+        description: "Ask a language model to score each document and drop low scores, like FineWeb-Edu's educational-quality filter. Works with any OpenAI-compatible server: Ollama, llama.cpp, LM Studio, vLLM, or a hosted API. Each document is one request, so place it after deduplication and cheap filters. Previews use at most 50 documents.",
+        fields: &[
+            field("endpoint", "Server URL", Text, "OpenAI-compatible base URL. Ollama: http://localhost:11434/v1"),
+            field("model", "Model", Text, ""),
+            field("api_key_env", "API key variable", Text, "Name of the environment variable with the API key, e.g. OPENAI_API_KEY. Empty for local servers. The key itself is never saved."),
+            field("prompt", "Prompt", LongText, "{text} is replaced by the document. The first number in the answer is the score."),
+            field("min_score", "Min score", Number, "Documents scoring lower are dropped."),
+            field("max_input_chars", "Max characters sent", Count, "Longer documents are cut."),
+            field("on_error", "When a request fails", Choice(&[("stop", "Stop the run"), ("keep", "Keep the document"), ("drop", "Drop the document")]), "Requests are retried 3 times first."),
+        ],
+        default: || StepConfig::LlmScore(LlmScore::default()),
+    },
+    StepKindInfo {
+        kind: "llm_rewrite",
+        label: "LLM rewrite",
+        category: StepCategory::External,
+        description: "Replace each document with a language model's answer to your prompt: rephrase web text (as in WRAP), summarize, translate, or generate synthetic data such as question-answer pairs. Any OpenAI-compatible server works. Each document is one request, so place it after deduplication and filters. Previews use at most 50 documents.",
+        fields: &[
+            field("endpoint", "Server URL", Text, "OpenAI-compatible base URL. Ollama: http://localhost:11434/v1"),
+            field("model", "Model", Text, ""),
+            field("api_key_env", "API key variable", Text, "Name of the environment variable with the API key. Empty for local servers."),
+            field("prompt", "Prompt", LongText, "{text} is replaced by the document."),
+            field("temperature", "Temperature", Number, "0 is most predictable; 0.7 gives more varied text."),
+            field("max_tokens", "Max answer tokens", Count, ""),
+            field("max_input_chars", "Max characters sent", Count, "Longer documents are cut."),
+            field("on_error", "When a request fails", Choice(&[("stop", "Stop the run"), ("keep", "Keep the document"), ("drop", "Drop the document")]), "Requests are retried 3 times first."),
+        ],
+        default: || StepConfig::LlmRewrite(LlmRewrite::default()),
+    },
 ];
 
 impl StepConfig {
@@ -642,7 +820,15 @@ impl StepConfig {
             StepConfig::FineWebFilter(_) => "fineweb_filter",
             StepConfig::ExactDedup(_) => "exact_dedup",
             StepConfig::NearDedup(_) => "near_dedup",
+            StepConfig::Plugin(_) => "plugin",
+            StepConfig::LlmScore(_) => "llm_score",
+            StepConfig::LlmRewrite(_) => "llm_rewrite",
         }
+    }
+
+    /// Steps that send each document to a language model.
+    pub fn is_llm(&self) -> bool {
+        matches!(self, StepConfig::LlmScore(_) | StepConfig::LlmRewrite(_))
     }
 
     pub fn info(&self) -> &'static StepKindInfo {
@@ -663,7 +849,27 @@ pub struct Preset {
     pub id: &'static str,
     pub label: &'static str,
     pub description: &'static str,
+    /// Data recipes use a language model (an OpenAI-compatible server).
+    pub uses_llm: bool,
     pub build: fn() -> PipelineSpec,
+}
+
+/// Normalization and cheap filters that data recipes run before the model, so it only sees
+/// clean, unique documents.
+fn recipe_prep() -> Vec<PipelineStep> {
+    vec![
+        on(StepConfig::NormalizeUnicode(NormalizeUnicode::default())),
+        on(StepConfig::CleanCharacters(CleanCharacters::default())),
+        on(StepConfig::NormalizeWhitespace(NormalizeWhitespace::default())),
+        on(StepConfig::LengthFilter(LengthFilter { min_words: Some(50), max_words: Some(5000), ..Default::default() })),
+        on(StepConfig::ExactDedup(ExactDedup::default())),
+    ]
+}
+
+fn recipe(name: &str, description: &str, last: StepConfig) -> PipelineSpec {
+    let mut steps = recipe_prep();
+    steps.push(on(last));
+    PipelineSpec { name: name.into(), description: Some(description.into()), steps }
 }
 
 pub static PRESETS: &[Preset] = &[
@@ -671,12 +877,14 @@ pub static PRESETS: &[Preset] = &[
         id: "gopher",
         label: "Gopher-style (recommended start)",
         description: "Normalization, PII masking, Gopher quality and repetition rules, blocklist, exact and near dedup.",
+        uses_llm: false,
         build: || PipelineSpec::template("Web cleanup"),
     },
     Preset {
         id: "fineweb",
         label: "FineWeb-style",
         description: "Close to FineWeb: English (≥ 0.65), Gopher repetition and quality, C4 rules without the end-punctuation line rule, FineWeb rules, MinHash dedup (5-grams, 14 × 8), email and IP masking. FineWeb also extracted text with trafilatura and deduplicated per crawl.",
+        uses_llm: false,
         build: || PipelineSpec {
             name: "FineWeb-style".into(),
             description: Some("Approximates the FineWeb filtering pipeline (Penedo et al., 2024).".into()),
@@ -696,6 +904,7 @@ pub static PRESETS: &[Preset] = &[
         id: "c4",
         label: "C4-style",
         description: "Close to C4: English, the C4 line and document rules, exact dedup. C4 also used a bad-words list (add your own terms to a blocklist step) and removed repeated 3-sentence spans across the corpus.",
+        uses_llm: false,
         build: || PipelineSpec {
             name: "C4-style".into(),
             description: Some("Approximates the C4 cleaning rules (Raffel et al., 2020).".into()),
@@ -711,6 +920,7 @@ pub static PRESETS: &[Preset] = &[
         id: "minimal",
         label: "Minimal",
         description: "Only normalization and exact dedup: keeps everything else, for data that is already clean.",
+        uses_llm: false,
         build: || PipelineSpec {
             name: "Minimal cleanup".into(),
             description: Some("Normalization and exact deduplication only.".into()),
@@ -721,6 +931,50 @@ pub static PRESETS: &[Preset] = &[
                 on(StepConfig::ExactDedup(ExactDedup::default())),
             ],
         },
+    },
+    Preset {
+        id: "recipe_edu",
+        label: "Recipe: educational quality (LLM)",
+        description: "Normalize, length filter and dedup, then a language model scores each document 0–5 for educational value and keeps 3 and up, like FineWeb-Edu. Needs an OpenAI-compatible server (Ollama by default).",
+        uses_llm: true,
+        build: || recipe(
+            "Educational quality (LLM)",
+            "Keeps documents a language model scores 3 or more for educational value (FineWeb-Edu style).",
+            StepConfig::LlmScore(LlmScore::default()),
+        ),
+    },
+    Preset {
+        id: "recipe_rephrase",
+        label: "Recipe: rephrase web text (LLM)",
+        description: "Normalize, filter and dedup, then a language model rewrites each document in clean encyclopedia style, keeping the facts (as in WRAP, Maini et al., 2024). Needs an OpenAI-compatible server.",
+        uses_llm: true,
+        build: || recipe(
+            "Rephrase web text (LLM)",
+            "Rewrites documents in encyclopedia style with a language model (WRAP-style synthetic rephrasing).",
+            StepConfig::LlmRewrite(LlmRewrite::default()),
+        ),
+    },
+    Preset {
+        id: "recipe_qa",
+        label: "Recipe: synthetic Q&A (LLM)",
+        description: "Normalize, filter and dedup, then a language model turns each document into question-answer pairs grounded in its text. Needs an OpenAI-compatible server.",
+        uses_llm: true,
+        build: || recipe(
+            "Synthetic Q&A (LLM)",
+            "Generates question-answer pairs from each document with a language model.",
+            StepConfig::LlmRewrite(LlmRewrite { prompt: QA_PROMPT.into(), temperature: 0.3, ..LlmRewrite::default() }),
+        ),
+    },
+    Preset {
+        id: "recipe_summary",
+        label: "Recipe: summaries (LLM)",
+        description: "Normalize, filter and dedup, then a language model writes a short factual summary of each document. Needs an OpenAI-compatible server.",
+        uses_llm: true,
+        build: || recipe(
+            "Summaries (LLM)",
+            "Replaces each document with a short summary written by a language model.",
+            StepConfig::LlmRewrite(LlmRewrite { prompt: SUMMARY_PROMPT.into(), temperature: 0.2, max_tokens: 300, ..LlmRewrite::default() }),
+        ),
     },
 ];
 
@@ -925,7 +1179,7 @@ mod tests {
             assert_eq!(cfg.kind(), info.kind);
             assert!(std::ptr::eq(cfg.info(), info));
         }
-        assert_eq!(STEP_KINDS.len(), 14);
+        assert_eq!(STEP_KINDS.len(), 17);
         assert_eq!(PipelineSpec::template("t").steps.len(), 12);
         for p in PRESETS {
             let spec = (p.build)();

@@ -19,18 +19,23 @@ const EXAMPLES_PER_RULE: usize = 3;
 const EXAMPLES_PER_STEP: usize = 3;
 const EXAMPLE_CHARS: usize = 300;
 pub const MAX_SAMPLE: u64 = 20_000;
+/// Largest preview sample when a step calls a language model.
+pub const MAX_LLM_SAMPLE: u64 = 50;
 
 /// Runs `spec` on a sample. Returns [`AppError::Cancelled`] soon after `cancel` is set.
 pub fn preview(
     spec: &PipelineSpec,
+    env: &super::StepEnv,
     reader: &DatasetReader,
     sample_size: u64,
     cancel: &AtomicBool,
 ) -> AppResult<PipelinePreview> {
     let check = || if cancel.load(Ordering::Relaxed) { Err(AppError::Cancelled) } else { Ok(()) };
-    let pipeline = Pipeline::compile(spec)?;
+    let pipeline = Pipeline::compile_with(spec, env)?;
     let total = reader.row_count();
-    let sample_size = sample_size.clamp(1, MAX_SAMPLE).min(total);
+    // Each document is a model request: keep previews quick and cheap.
+    let max = if pipeline.uses_llm { MAX_LLM_SAMPLE } else { MAX_SAMPLE };
+    let sample_size = sample_size.clamp(1, max).min(total);
 
     let docs = sample(reader, sample_size)?;
     check()?;
@@ -49,6 +54,7 @@ pub fn preview(
             })
             .collect();
         check()?;
+        pipeline.check_abort()?;
         let dups = resolve_in_memory(pipeline.bands(pos), &fingerprints);
         decisions.set(pos, dups);
     }
@@ -64,6 +70,7 @@ pub fn preview(
         })
         .collect();
     let results = results.ok_or(AppError::Cancelled)?;
+    pipeline.check_abort()?;
 
     let mut stats = StatsAccumulator::new(&pipeline);
     let mut drop_examples = Vec::new();
@@ -220,9 +227,9 @@ mod tests {
         let (_root, r) = dataset(500);
         let spec = PipelineSpec::template("t");
         let flag = AtomicBool::new(true);
-        assert!(matches!(preview(&spec, &r, 100, &flag), Err(AppError::Cancelled)));
+        assert!(matches!(preview(&spec, &Default::default(), &r, 100, &flag), Err(AppError::Cancelled)));
         let flag = AtomicBool::new(false);
-        assert_eq!(preview(&spec, &r, 100, &flag).unwrap().sample_docs, 100);
+        assert_eq!(preview(&spec, &Default::default(), &r, 100, &flag).unwrap().sample_docs, 100);
     }
 
     #[test]

@@ -57,13 +57,23 @@ Milestones are ordered; each one should leave the app usable.
 - [x] Scale test on GitHub (`Scale test` workflow).
 - [ ] Per-source token counts in token exports.
 
+## 0.3
+- [x] Headless engine crate (`aeon-core`) and the `aeon` CLI.
+- [x] Local HTTP API (CLI `serve` and a switch in the app).
+- [x] MCP server for AI assistants.
+- [x] Plugins: Plugin step running external programs over JSON lines; example plugins.
+- [x] Themes: built-in palettes and custom themes.
+- [x] Language-model steps (score, rewrite) and data recipes.
+- [ ] Follow-ups:
+  - a plugin picker in the step editor (today the plugin's name is typed);
+  - caching model answers between runs;
+  - score tagging instead of dropping;
+  - CLI binaries in the release, checked on a real tag.
+
 ## Later
-- **Model-based quality filter (fastText).** Deferred, not started: the useful classifiers
-  (e.g. DCLM's) are multi-gigabyte downloads, so loading needs several GB of RAM, and a
-  pure-Rust loader can only be verified against a real model. Plan: read fastText `.bin`
-  supervised models (softmax loss; no quantized `.ftz`), compute word + subword + word-n-gram
-  averages, score with the label's output row, and expose a `quality_filter` step with a
-  model path and threshold, tested against a small model trained for the test.
+- **Built-in fastText quality filter.** fastText classifiers already work as a plugin
+  (`examples/plugins/fasttext-classifier`). A pure-Rust loader would avoid needing Python. It
+  can only be verified against a real model, which is a multi-gigabyte download.
 - Perplexity filter with a small language model.
 - Benchmark decontamination.
 - Code-specific filters (license headers, generated files, minified code).

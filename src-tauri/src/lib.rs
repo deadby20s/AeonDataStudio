@@ -1,26 +1,35 @@
-mod catalog;
 mod commands;
-mod demo;
-mod dataset;
-mod error;
-mod export;
-mod import;
-mod jobs;
-mod mix;
-mod pipeline;
-#[cfg(test)]
-mod scale;
-mod sql;
-mod state;
 mod updates;
-mod workspace;
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
-use tauri::Manager;
+use aeon_core::api::ApiServer;
+use aeon_core::jobs::{JobEvents, JobManager};
+use aeon_core::state::AppState;
+use aeon_shared::{JOB_UPDATE_EVENT, JobStatus};
+use tauri::{Emitter, Manager};
 
-use crate::jobs::JobManager;
-use crate::state::AppState;
+/// Forwards job updates to the window.
+struct WindowEvents(tauri::AppHandle);
+
+impl JobEvents for WindowEvents {
+    fn job_updated(&self, status: &JobStatus) {
+        if let Err(e) = self.0.emit(JOB_UPDATE_EVENT, status) {
+            log::warn!("failed to emit job update: {e}");
+        }
+    }
+}
+
+/// The engine state shared by the commands and the local API.
+pub struct Studio(pub Arc<AppState>);
+
+/// The local API server while it runs.
+#[derive(Default)]
+pub struct Api {
+    pub server: Mutex<Option<ApiServer>>,
+    pub error: Mutex<Option<String>>,
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -43,18 +52,26 @@ pub fn run() {
         )
         .setup(|app| {
             let settings_path: PathBuf = app.path().app_config_dir()?.join("settings.json");
-            let jobs = JobManager::new(std::sync::Arc::new(app.handle().clone()));
-            let state = AppState::new(settings_path, jobs);
+            let jobs = JobManager::new(Arc::new(WindowEvents(app.handle().clone())));
+            let version = app.package_info().version.to_string();
+            let state = Arc::new(AppState::new(settings_path, jobs, version.clone()));
 
             // Reopen the last workspace. If it has moved or is broken, start without one;
             // it stays in the recent list so the user sees the error when they pick it.
             if let Some(last) = state.recent_workspaces().first().cloned()
-                && let Err(e) = state.open_workspace(std::path::Path::new(&last)) {
-                    log::warn!("could not reopen workspace {last}: {e}");
-                }
+                && let Err(e) = state.open_workspace(std::path::Path::new(&last))
+            {
+                log::warn!("could not reopen workspace {last}: {e}");
+            }
 
-            log::info!("AeonDataStudio {} started", app.package_info().version);
-            app.manage(state);
+            let api = Api::default();
+            if state.settings().api.enabled {
+                commands::start_api_server(&state, &api);
+            }
+
+            log::info!("AeonDataStudio {version} started");
+            app.manage(Studio(state));
+            app.manage(api);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -104,6 +121,13 @@ pub fn run() {
             commands::cancel_job,
             commands::clear_finished_jobs,
             commands::start_self_test_job,
+            commands::list_plugins,
+            commands::open_plugins_folder,
+            commands::get_theme_settings,
+            commands::set_theme_settings,
+            commands::api_status,
+            commands::set_api_enabled,
+            commands::new_api_token,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

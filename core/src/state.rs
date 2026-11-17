@@ -15,6 +15,32 @@ pub struct AppSettings {
     /// Most recent first.
     #[serde(default)]
     pub recent_workspaces: Vec<String>,
+    #[serde(default)]
+    pub theme: aeon_shared::ThemeSettings,
+    #[serde(default)]
+    pub api: ApiSettings,
+}
+
+/// The desktop app's local API: whether it starts with the app, on which port, with which token.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_port")]
+    pub port: u16,
+    /// Created on first use and kept, so scripts keep working across restarts.
+    #[serde(default)]
+    pub token: String,
+}
+
+fn default_port() -> u16 {
+    crate::api::DEFAULT_PORT
+}
+
+impl Default for ApiSettings {
+    fn default() -> Self {
+        Self { enabled: false, port: default_port(), token: String::new() }
+    }
 }
 
 impl AppSettings {
@@ -49,6 +75,8 @@ pub struct AppState {
     settings: RwLock<AppSettings>,
     settings_path: PathBuf,
     pub jobs: Arc<JobManager>,
+    /// App version, written into export manifests.
+    pub version: String,
     /// Cancel flag of the preview running now, if any (one preview at a time).
     pub preview_cancel: std::sync::Mutex<Option<Arc<std::sync::atomic::AtomicBool>>>,
     /// Interrupts the running SQL query, if any.
@@ -56,13 +84,14 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(settings_path: PathBuf, jobs: Arc<JobManager>) -> Self {
+    pub fn new(settings_path: PathBuf, jobs: Arc<JobManager>, version: impl Into<String>) -> Self {
         let settings = AppSettings::load(&settings_path);
         Self {
             workspace: RwLock::new(None),
             settings: RwLock::new(settings),
             settings_path,
             jobs,
+            version: version.into(),
             preview_cancel: std::sync::Mutex::new(None),
             sql_cancel: std::sync::Mutex::new(None),
         }
@@ -91,6 +120,10 @@ impl AppState {
     pub fn close_workspace(&self) -> AppResult<()> {
         *self.workspace.write().map_err(|_| AppError::Internal("workspace lock poisoned".into()))? = None;
         Ok(())
+    }
+
+    pub fn settings(&self) -> AppSettings {
+        self.settings.read().map(|s| s.clone()).unwrap_or_default()
     }
 
     pub fn recent_workspaces(&self) -> Vec<String> {

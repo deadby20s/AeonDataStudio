@@ -2,6 +2,7 @@ use aeon_shared::{JobId, JobLink, JobState, JobStatus};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
+use crate::settings::{ApiCard, AppearanceCard, PluginsCard};
 use crate::api;
 use crate::app::{AppCtx, Page, use_app};
 use crate::format;
@@ -387,6 +388,9 @@ pub fn SettingsPage() -> impl IntoView {
                     .into_any()
             }}
         </section>
+        <AppearanceCard/>
+        <PluginsCard/>
+        <ApiCard/>
         <section class="card">
             <h2>"Demo data"</h2>
             <p class="muted small">

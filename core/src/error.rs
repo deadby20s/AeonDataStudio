@@ -1,6 +1,6 @@
 use serde::{Serialize, Serializer};
 
-/// Error type returned by every Tauri command.
+/// Error type returned by every engine function (and by the app's commands and the API).
 ///
 /// It serializes to its display string, which the frontend receives as the rejection value
 /// of `invoke`.
@@ -41,9 +41,6 @@ pub enum AppError {
 
     #[error("Dataset {0} not found")]
     DatasetNotFound(String),
-
-    #[error("{0}")]
-    Tauri(#[from] tauri::Error),
 
     #[error("Internal error: {0}")]
     Internal(String),

@@ -87,7 +87,9 @@ fn summary(step: &PipelineStep) -> String {
         .filter_map(|f| {
             let v = m.get(f.key)?;
             match (f.kind, v) {
-                (FieldKind::Bool, _) => None,
+                (FieldKind::Bool | FieldKind::LongText, _) => None,
+                (FieldKind::Text, Value::String(s)) if s.is_empty() => None,
+                (FieldKind::Text, Value::String(s)) => Some(format!("{} {s}", f.label.to_lowercase())),
                 (FieldKind::List, Value::Array(a)) => Some(format!("{}: {}", f.label, a.len())),
                 (FieldKind::Choice(opts), Value::String(s)) => {
                     opts.iter().find(|(val, _)| val == s).map(|(_, label)| (*label).to_string())
@@ -176,7 +178,10 @@ fn PipelineList() -> impl IntoView {
                                             ctx.draft.set(Some(d));
                                         }
                                     >
-                                        <span class="strong">{p.label}</span>
+                                        <span class="strong">
+                                            {p.label}
+                                            {p.uses_llm.then(|| view! { " " <span class="badge">"needs an LLM server"</span> })}
+                                        </span>
                                         <span class="muted small">{p.description}</span>
                                     </button>
                                 </li>
@@ -406,6 +411,7 @@ fn PipelineEditor() -> impl IntoView {
                             StepCategory::Normalize => "Normalize",
                             StepCategory::Filter => "Filter",
                             StepCategory::Dedup => "Dedup",
+                            StepCategory::External => "External",
                         };
                         view! { <option value=i.to_string()>{format!("{cat}: {}", k.label)}</option> }
                     })
@@ -478,11 +484,13 @@ fn StepCard(key: u64, edit: impl Fn(&dyn Fn(&mut Draft)) + Copy + Send + Sync + 
                 StepCategory::Normalize => "badge-cat normalize",
                 StepCategory::Filter => "badge-cat filter",
                 StepCategory::Dedup => "badge-cat dedup",
+                StepCategory::External => "badge-cat external",
             };
             let cat_label = match info.category {
                 StepCategory::Normalize => "Normalize",
                 StepCategory::Filter => "Filter",
                 StepCategory::Dedup => "Dedup",
+                StepCategory::External => "External",
             };
             let json = step_json(&s);
             let sum = summary(&s);
@@ -611,12 +619,26 @@ fn FieldInput(
             ></textarea>
         }
             .into_any(),
+        FieldKind::Text => view! {
+            <input type="text" prop:value=text.clone() on:change=move |ev| set(Value::from(event_target_value(&ev).trim().to_string()))/>
+        }
+            .into_any(),
+        FieldKind::LongText => view! {
+            <textarea
+                rows="8"
+                class="mono-input prompt-input"
+                prop:value=text.clone()
+                on:change=move |ev| set(Value::from(event_target_value(&ev)))
+            ></textarea>
+        }
+            .into_any(),
         kind => {
             let (optional, integer, ratio) = match kind {
                 FieldKind::Count => (false, true, false),
                 FieldKind::OptCount => (true, true, false),
                 FieldKind::Ratio => (false, false, true),
                 FieldKind::OptRatio => (true, false, true),
+                FieldKind::Number => (false, false, false),
                 _ => (true, false, false),
             };
             view! {

@@ -1,0 +1,18 @@
+name = "fastText classifier"
+description = "Keeps documents a fastText model labels as wanted (quality, language, topic…). Needs: pip install fasttext-wheel numpy, and a .bin model."
+command = ["python", "main.py"]
+
+[[options]]
+key = "model"
+default = "model.bin"
+help = "Path to the fastText .bin model (relative to this folder or absolute)."
+
+[[options]]
+key = "label"
+default = "__label__hq"
+help = "Label that means keep."
+
+[[options]]
+key = "min_probability"
+default = "0.5"
+help = "Documents whose keep-label probability is lower are dropped."

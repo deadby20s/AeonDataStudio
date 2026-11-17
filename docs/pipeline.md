@@ -92,11 +92,51 @@ off. The recommended values come from DeepMind's Gopher paper (Rae et al., 2021)
 Measured throughput in a release build (synthetic ~700-character documents, all cores):
 about 147k documents/s (105 MB/s) for the whole template; language detection is the slowest
 step at about 127 MB/s, every other step runs at 450 MB/s or more. Benchmark:
-`cargo test --release -p aeondatastudio bench_steps -- --ignored --nocapture`.
+`cargo test --release -p aeon-core bench_steps -- --ignored --nocapture`.
 
-*Planned:* model-based filters (perplexity under a small reference model, a quality
-classifier), and tagging documents with scores instead of dropping them so thresholds can be
-chosen from the score distribution.
+### Plugins and language models *(0.3)*
+
+| Step (`kind`) | What it does |
+|---|---|
+| `plugin` | Runs a program from the workspace's `plugins/` folder on each document. It can keep, drop (rule `plugin`, with the plugin's reason) or rewrite the document. See [plugins.md](plugins.md). |
+| `llm_score` | Sends each document (cut to `max_input_chars`) to an OpenAI-compatible `/chat/completions` endpoint with `prompt` (`{text}` is replaced). It reads the first number of the answer as the score and drops documents below `min_score` (rule `llm_score_below`). The default prompt is a 0–5 educational-value scale, as in FineWeb-Edu. |
+| `llm_rewrite` | Replaces each document with the model's answer to `prompt`. Use it to rephrase (WRAP, Maini et al., 2024), summarize, translate or generate synthetic data. |
+
+How the LLM steps behave:
+- **Server.** `endpoint` is the server's base URL; the default is Ollama, at
+  `http://localhost:11434/v1`. `model` is sent as is.
+- **API key.** `api_key_env` names an environment variable that holds the key. The key itself
+  is never written to the recipe.
+- **Retries.** Requests time out after 3 minutes. Network errors, 429 and 5xx responses are
+  retried 3 times with backoff.
+- **Failures.** `on_error` decides what happens after that: `stop` (stop the run with the
+  error, the default), `keep` (keep the document) or `drop` (drop it with rule `llm_error`).
+- **Thinking.** Steps ask the server not to think (`chat_template_kwargs.enable_thinking =
+  false`, `reasoning_effort = "none"`), since reasoning models otherwise spend the answer
+  tokens on hidden reasoning. A server that rejects these fields gets the request again
+  without them.
+- **Order.** LLM steps must come after every dedup step. Dedup passes re-run the steps before
+  them, so a model there would see every document several times, and duplicates would be paid
+  for.
+- **Previews.** Previews of pipelines with LLM steps use at most 50 documents.
+
+Measured with a small local model (Gemma 4 E2B, Q4, llama.cpp, one consumer GPU, 8 parallel
+slots): 50 documents scored in 14 s.
+
+### Data recipes *(0.3)*
+
+Presets that prepare documents and then use a language model. Each one first normalizes,
+applies a length filter (50–5,000 words) and runs exact dedup:
+
+| Preset | Model step |
+|---|---|
+| `recipe_edu` | `llm_score` with the educational-value prompt, keeps scores of 3 and up |
+| `recipe_rephrase` | `llm_rewrite` into clean encyclopedia style, keeping the facts |
+| `recipe_qa` | `llm_rewrite` into 3–5 question-answer pairs grounded in the text |
+| `recipe_summary` | `llm_rewrite` into a 3–5 sentence summary |
+
+*Planned:* perplexity filtering, and tagging documents with scores instead of dropping them,
+so thresholds can be chosen from the score distribution.
 
 ## 4. Deduplicate *(built in M3)*
 

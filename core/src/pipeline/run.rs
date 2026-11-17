@@ -45,7 +45,7 @@ struct InputDoc {
 }
 
 pub fn run(ctx: &mut JobCtx, ws: Arc<Workspace>, req: RunRequest) -> AppResult<JobOutcome> {
-    let pipeline = Pipeline::compile(&req.spec)?;
+    let pipeline = Pipeline::compile_with(&req.spec, &ws.step_env())?;
     let input_dir = ws.dataset_dir(&req.input_dataset_id)?;
     let reader = DatasetReader::open(&input_dir)?;
     let input_name = reader.manifest().name.clone();
@@ -164,6 +164,7 @@ fn execute(
                     (d.row, if o.reached_stop { pipeline.fingerprint(pos, &o.text) } else { None })
                 })
                 .collect();
+            pipeline.check_abort()?;
             for (row, fp) in &fingerprints {
                 if let Some(hashes) = fp {
                     bands.push(*row, hashes)?;
@@ -207,6 +208,7 @@ fn execute(
                 (pipeline.process(text, d.row, &decisions, None), d)
             })
             .collect();
+        pipeline.check_abort()?;
         for (o, d) in &outcomes {
             stats.add(o);
             match &o.dropped {
