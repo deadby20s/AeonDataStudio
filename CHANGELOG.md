@@ -11,6 +11,14 @@
 - Double-clicking `aeon` on Windows no longer flashes a console window that closes at once: it
   explains that it is the command-line tool, says where the app installer is, and waits for
   Enter.
+- New look:
+  - depth and gloss: a soft accent glow, a frosted sidebar, cards with a sheen and shadows;
+  - one consistent control system: all buttons, inputs and selects are the same height, and
+    buttons no longer wrap or stretch;
+  - gradient primary buttons, a clearer active page in the sidebar, and refreshed tables,
+    badges and progress bars. It works with every theme, including custom ones.
+- New logo: data layers narrowing into one clean drop. In the app it takes the theme's
+  colors; the app icons for every platform are regenerated from it (`branding/`).
 
 ## 0.3.0 alpha — 2026-11-17
 

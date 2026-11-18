@@ -422,3 +422,209 @@ ins.ins, span.ins { background: color-mix(in srgb, var(--ok) 25%, transparent); 
 .snippet-item { border: none; background: none; text-align: left; padding: 4px 6px; border-radius: 4px; font-size: 13px; }
 .snippet-item:hover:not(:disabled) { background: var(--surface-2); }
 .snippet-item:disabled { color: var(--muted); }
+
+/* ===========================================================================================
+   Visual refresh: depth, gloss and one consistent control system. Built only from the theme
+   variables (and color-mix), so every built-in and custom theme gets it.
+   =========================================================================================== */
+:root {
+  --radius-sm: 8px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --control-h: 36px;
+  --control-h-sm: 28px;
+  --edge: color-mix(in srgb, var(--text) 10%, transparent);
+  --edge-strong: color-mix(in srgb, var(--text) 18%, transparent);
+  --gloss: linear-gradient(180deg, color-mix(in srgb, #fff 7%, transparent), transparent 55%);
+  --accent-2: color-mix(in srgb, var(--accent) 62%, #b26bff);
+  --accent-grad: linear-gradient(135deg, var(--accent), var(--accent-2));
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .16);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .10), 0 10px 28px -14px rgba(0, 0, 0, .45);
+  --shadow-lg: 0 24px 60px -24px rgba(0, 0, 0, .55);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 32%, transparent);
+  font-family: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
+}
+
+body {
+  background:
+    radial-gradient(1100px 620px at 92% -12%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
+    radial-gradient(900px 560px at -8% 112%, color-mix(in srgb, var(--accent-2) 10%, transparent), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+h2 { font-size: 15px; font-weight: 650; letter-spacing: -0.005em; }
+
+/* Buttons: same height everywhere, never wrapped or stretched. */
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--control-h);
+  padding: 0 14px;
+  flex: none;
+  white-space: nowrap;
+  line-height: 1.2;
+  font-weight: 550;
+  border-radius: var(--radius);
+  border: 1px solid var(--edge);
+  background: var(--gloss), color-mix(in srgb, var(--surface-2) 85%, var(--surface));
+  box-shadow: var(--shadow-sm), inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);
+  transition: background-color .15s, border-color .15s, box-shadow .2s, transform .08s, filter .15s, color .15s;
+}
+button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--edge));
+  background: var(--gloss), color-mix(in srgb, var(--accent) 9%, var(--surface-2));
+}
+button:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
+button:focus-visible { box-shadow: var(--ring); border-color: var(--accent); }
+button.primary {
+  color: var(--accent-text);
+  border-color: transparent;
+  background: var(--gloss), var(--accent-grad);
+  box-shadow: 0 8px 20px -10px color-mix(in srgb, var(--accent) 80%, transparent), inset 0 1px 0 rgba(255, 255, 255, .25);
+}
+button.primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--gloss), var(--accent-grad);
+  filter: brightness(1.08) saturate(1.05);
+  box-shadow: 0 10px 26px -10px color-mix(in srgb, var(--accent) 90%, transparent), inset 0 1px 0 rgba(255, 255, 255, .3);
+}
+button.danger { background: var(--gloss), var(--danger); border-color: transparent; box-shadow: 0 8px 20px -12px var(--danger); }
+button.danger-outline { background: transparent; border-color: color-mix(in srgb, var(--danger) 45%, var(--edge)); box-shadow: none; }
+button.danger-outline:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 12%, transparent); border-color: var(--danger); }
+button:disabled { opacity: .45; box-shadow: none; }
+.small-button { min-height: var(--control-h-sm); padding: 0 10px; font-size: 12px; border-radius: var(--radius-sm); }
+
+/* Buttons that are really rows, links or icons keep their own look. */
+.nav-item, .list-item, .step-title, button.link, .tab, .doc-head, .snippet-item, button.chip {
+  min-height: 0;
+  box-shadow: none;
+  font-weight: inherit;
+}
+.list-item, .step-title, .doc-head, .snippet-item { white-space: normal; justify-content: flex-start; }
+.list-item { align-items: flex-start; }
+button.link { padding: 0; }
+button.link:hover:not(:disabled) { background: none; }
+.icon-button {
+  min-height: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  box-shadow: none;
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+}
+.icon-button:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 12%, transparent); border-color: transparent; }
+
+/* Inputs */
+input, select, textarea {
+  border-radius: var(--radius);
+  border-color: var(--edge);
+  background: color-mix(in srgb, var(--bg) 45%, var(--surface));
+  transition: border-color .15s, box-shadow .2s, background-color .15s;
+}
+input, select { min-height: var(--control-h); padding: 0 12px; }
+textarea { padding: 8px 12px; }
+input:hover, select:hover, textarea:hover { border-color: var(--edge-strong); }
+input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--accent); box-shadow: var(--ring); }
+input[type="checkbox"], input[type="radio"] { min-height: 0; width: 16px; height: 16px; padding: 0; accent-color: var(--accent); box-shadow: none; }
+input[type="color"] { min-height: 0; padding: 2px; }
+.sql-editor-wrap .sql-editor { border-color: var(--edge); }
+
+/* Surfaces */
+.card, .stat, .job, .step-card, .welcome-card, .table, .doc, .examples, .plugin-list > li, .sql-tables, .changes-list, .lineage, .callout {
+  border-color: var(--edge);
+}
+.card, .stat, .job, .step-card, .welcome-card, .table {
+  background: var(--gloss), var(--surface);
+  box-shadow: var(--shadow);
+}
+.card { border-radius: var(--radius-lg); padding: 18px 22px; }
+.stat, .job, .table { border-radius: var(--radius-lg); }
+.step-card { border-radius: var(--radius-lg); transition: border-color .15s, box-shadow .2s; }
+.step-card:hover { border-color: var(--edge-strong); }
+.stat-value { font-size: 22px; letter-spacing: -0.02em; }
+.welcome-card { border-radius: 20px; box-shadow: var(--shadow-lg); padding: 36px; }
+.welcome-logo { width: 56px; height: 56px; filter: drop-shadow(0 8px 18px color-mix(in srgb, var(--accent) 45%, transparent)); }
+.empty { border-color: var(--edge-strong); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--surface) 40%, transparent); }
+
+/* Shell */
+.sidebar {
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+  border-right-color: var(--edge);
+  padding: 18px 12px;
+}
+.brand { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; gap: 10px; }
+.brand-mark { width: 30px; height: 30px; filter: drop-shadow(0 6px 12px color-mix(in srgb, var(--accent) 40%, transparent)); }
+.workspace-chip { background: var(--gloss), var(--surface-2); border: 1px solid var(--edge); border-radius: var(--radius); padding: 9px 11px; }
+.nav { gap: 3px; }
+.nav-item { position: relative; border-radius: var(--radius); padding: 8px 12px; transition: background-color .15s, color .15s; }
+.nav-item:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.nav-item.active {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--accent) 5%, transparent));
+  color: var(--text);
+  font-weight: 600;
+}
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent-grad);
+  box-shadow: 0 0 10px var(--accent);
+}
+.content { padding: 28px 36px; gap: 18px; }
+.page-header { min-height: 40px; }
+.actions, .row-buttons { align-items: center; }
+
+/* Tables */
+.table { border-collapse: separate; border-spacing: 0; overflow: hidden; }
+.table th { background: color-mix(in srgb, var(--surface-2) 70%, transparent); text-transform: uppercase; letter-spacing: .05em; font-size: 11px; font-weight: 650; }
+.table th, .table td { border-bottom-color: var(--edge); }
+.table tbody tr { transition: background-color .12s; }
+.table.clickable tbody tr:hover, .table tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+
+/* Badges, chips, progress */
+.badge { background: var(--accent-grad); box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--accent) 60%, transparent); font-weight: 600; }
+.badge-cat { font-weight: 600; padding: 1px 8px; background: color-mix(in srgb, currentColor 10%, transparent); border-color: color-mix(in srgb, currentColor 40%, transparent); }
+.chip { border-color: var(--edge); }
+.progress { height: 7px; background: color-mix(in srgb, var(--text) 8%, transparent); }
+.progress-bar { background: var(--accent-grad); box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent); }
+.hist-bar { background: linear-gradient(180deg, var(--accent-2), var(--accent)); }
+.tab.active { border-bottom-color: var(--accent); }
+
+/* Layout fixes: control rows line up and nothing stretches. */
+.add-step { align-items: center; max-width: 560px; }
+.add-step select { flex: 1; }
+.path-form, .search { align-items: center; }
+.theme-chip { min-height: var(--control-h); }
+.theme-chip.active { border-color: var(--accent); box-shadow: var(--ring); }
+.snippet-pop { border-color: var(--edge); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); background: var(--gloss), var(--surface); }
+
+/* Pages fade in. */
+.content > * { animation: rise .25s ease-out both; }
+@keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .content > * { animation: none; }
+  button, .nav-item, .step-card { transition: none; }
+}
+
+/* Scrollbars */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent; }
+::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+
+/* Logo */
+.logo { display: inline-flex; flex: none; }
+.logo > svg { width: 100%; height: 100%; display: block; }
+
+/* Links stay left-aligned; long recent paths still get an ellipsis. */
+button.link { justify-content: flex-start; text-align: left; }
+.recent-path { display: block; text-align: left; }

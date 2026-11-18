@@ -2,6 +2,7 @@ use aeon_shared::{JobId, JobLink, JobState, JobStatus};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
+use crate::logo::Logo;
 use crate::settings::{ApiCard, AppearanceCard, PluginsCard};
 use crate::api;
 use crate::app::{AppCtx, Page, use_app};
@@ -65,7 +66,7 @@ pub fn WelcomePage() -> impl IntoView {
     view! {
         <div class="welcome">
             <div class="welcome-card">
-                <img src="public/logo.svg" alt="" class="welcome-logo"/>
+                <Logo class="welcome-logo"/>
                 <h1>"AeonDataStudio"</h1>
                 <p class="muted">
                     "Prepare text data for pretraining: import, clean, deduplicate, inspect and export. Everything stays on this machine."

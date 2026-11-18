@@ -4,6 +4,7 @@ mod datasets;
 mod diff;
 mod exports;
 mod format;
+mod logo;
 mod inspector;
 mod pages;
 mod pipelines;
