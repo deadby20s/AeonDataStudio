@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 alpha — 2026-11-18
+
+Nicer to use: pick plugins from a list, score now and choose thresholds later, pay the model
+once. A new look and logo. The first version installed copies of 0.3.0 can update to from inside
+the app.
 
 ### Added
 - **Plugin picker**: a Plugin step lists the installed plugins and shows each plugin's options
@@ -28,6 +32,8 @@
     badges and progress bars. It works with every theme, including custom ones.
 - New logo: data layers narrowing into one clean drop. In the app it takes the theme's
   colors; the app icons for every platform are regenerated from it (`branding/`).
+- For developers: debug builds no longer keep debug info for dependencies, and the app library
+  is built for desktop only; `target/` stays about 5 times smaller and builds are faster.
 
 ## 0.3.0 alpha — 2026-11-17
 
