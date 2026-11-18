@@ -17,9 +17,18 @@ pub enum Verdict {
     Drop { rule: &'static str, detail: String },
 }
 
+/// Metadata fields a step adds to a kept document (`meta.<key> = value`), e.g. a quality score.
+pub type Tags = Vec<(String, serde_json::Value)>;
+
 pub trait Step: Send + Sync {
     /// Transforms `text` in place, or decides to drop the document.
     fn apply(&self, text: &mut String) -> Verdict;
+
+    /// Like [`Step::apply`], and may also add metadata fields. Most steps don't.
+    fn apply_tagged(&self, text: &mut String, tags: &mut Tags) -> Verdict {
+        let _ = tags;
+        self.apply(text)
+    }
 }
 
 /// Builds a step from its settings, checking them first.

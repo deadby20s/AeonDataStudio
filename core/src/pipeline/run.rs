@@ -44,6 +44,33 @@ struct InputDoc {
     meta: String,
 }
 
+/// `meta_json` with the steps' tags set as top-level fields (later steps win). Metadata that
+/// isn't a JSON object is kept under `_meta`.
+fn with_tags<'a>(meta_json: &'a str, tags: &super::steps::Tags) -> std::borrow::Cow<'a, str> {
+    if tags.is_empty() {
+        return std::borrow::Cow::Borrowed(meta_json);
+    }
+    let mut obj = match serde_json::from_str::<serde_json::Value>(meta_json) {
+        Ok(serde_json::Value::Object(m)) => m,
+        Ok(serde_json::Value::Null) | Err(_) if meta_json.trim().is_empty() => serde_json::Map::new(),
+        Ok(serde_json::Value::Null) => serde_json::Map::new(),
+        Ok(other) => {
+            let mut m = serde_json::Map::new();
+            m.insert("_meta".into(), other);
+            m
+        }
+        Err(_) => {
+            let mut m = serde_json::Map::new();
+            m.insert("_meta".into(), serde_json::Value::String(meta_json.to_string()));
+            m
+        }
+    };
+    for (k, v) in tags {
+        obj.insert(k.clone(), v.clone());
+    }
+    std::borrow::Cow::Owned(serde_json::Value::Object(obj).to_string())
+}
+
 pub fn run(ctx: &mut JobCtx, ws: Arc<Workspace>, req: RunRequest) -> AppResult<JobOutcome> {
     let pipeline = Pipeline::compile_with(&req.spec, &ws.step_env())?;
     let input_dir = ws.dataset_dir(&req.input_dataset_id)?;
@@ -213,7 +240,8 @@ fn execute(
             stats.add(o);
             match &o.dropped {
                 None => {
-                    writer.push(NewDoc { id: &d.id, text: &o.text, source: &d.source, meta_json: &d.meta })?;
+                    let meta = with_tags(&d.meta, &o.tags);
+                    writer.push(NewDoc { id: &d.id, text: &o.text, source: &d.source, meta_json: &meta })?;
                     kept.push(d.row, o.modified)?;
                 }
                 Some(drop) => removed.push(RemovedRow {
@@ -316,6 +344,18 @@ pub fn read_report(ws: &Workspace, run_id: &str) -> AppResult<RunReport> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tags_are_merged_into_metadata() {
+        let tags = vec![("llm_score".to_string(), serde_json::json!(4.0)), ("lang".to_string(), serde_json::json!("de"))];
+        let merged: serde_json::Value = serde_json::from_str(&with_tags(r#"{"url":"u","lang":"en"}"#, &tags)).unwrap();
+        assert_eq!(merged, serde_json::json!({"url": "u", "lang": "de", "llm_score": 4.0}));
+        assert_eq!(with_tags(r#"{"a":1}"#, &vec![]), r#"{"a":1}"#, "untouched without tags");
+        let from_empty: serde_json::Value = serde_json::from_str(&with_tags("", &tags)).unwrap();
+        assert_eq!(from_empty["llm_score"], 4.0);
+        let from_list: serde_json::Value = serde_json::from_str(&with_tags("[1,2]", &tags)).unwrap();
+        assert_eq!(from_list["_meta"], serde_json::json!([1, 2]));
+    }
     use crate::jobs::{JobEvents, JobManager};
     use crate::pipeline::{RemovedReader, browse_changed};
     use aeon_shared::{

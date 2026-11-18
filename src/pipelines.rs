@@ -531,15 +531,22 @@ fn StepCard(key: u64, edit: impl Fn(&dyn Fn(&mut Draft)) + Copy + Send + Sync + 
                     <Show when=move || open.get()>
                         <div class="step-body">
                             <p class="muted small">{info.description}</p>
-                            <div class="grid-2">
-                                {info
-                                    .fields
-                                    .iter()
-                                    .map(|f| {
-                                        view! { <FieldInput field=*f value=json.get(f.key).cloned() update_step/> }
-                                    })
-                                    .collect_view()}
-                            </div>
+                            {if info.kind == "plugin" {
+                                view! { <PluginFields json=json.clone() update_step/> }.into_any()
+                            } else {
+                                view! {
+                                    <div class="grid-2">
+                                        {info
+                                            .fields
+                                            .iter()
+                                            .map(|f| {
+                                                view! { <FieldInput field=*f value=json.get(f.key).cloned() update_step/> }
+                                            })
+                                            .collect_view()}
+                                    </div>
+                                }
+                                    .into_any()
+                            }}
                             {move || error.get().map(|e| view! { <p class="error small">{e}</p> })}
                         </div>
                     </Show>
@@ -969,5 +976,150 @@ pub fn StepFunnel(steps: Vec<aeon_shared::StepStats>, on_rule: Option<Callback<(
                     .collect_view()}
             </tbody>
         </table>
+    }
+}
+
+/// `key=value` lines as (key, value) pairs, in order.
+fn option_pairs(lines: &[String]) -> Vec<(String, String)> {
+    lines
+        .iter()
+        .filter_map(|l| l.split_once('=').map(|(k, v)| (k.trim().to_string(), v.trim().to_string())))
+        .collect()
+}
+
+/// The option lines with `key` set to `value`, or removed when `value` is empty (the plugin's
+/// default then applies). Lines for other keys, including ones the plugin doesn't declare, stay.
+fn set_option(lines: &[String], key: &str, value: &str) -> Vec<String> {
+    let mut out: Vec<String> = lines
+        .iter()
+        .filter(|l| l.split_once('=').is_none_or(|(k, _)| k.trim() != key))
+        .cloned()
+        .collect();
+    if !value.trim().is_empty() {
+        out.push(format!("{key}={}", value.trim()));
+    }
+    out
+}
+
+/// Settings of a Plugin step: pick an installed plugin, then fill in the options it declares.
+#[component]
+fn PluginFields(
+    json: Map<String, Value>,
+    update_step: impl Fn(&dyn Fn(&mut PipelineStep) -> Result<(), String>) + Copy + Send + Sync + 'static,
+) -> impl IntoView {
+    let plugins = RwSignal::new(None::<Result<Vec<aeon_shared::PluginInfo>, String>>);
+    let load = move || {
+        spawn_local(async move {
+            plugins.set(Some(api::list_plugins().await.map_err(|e| e.to_string())));
+        });
+    };
+    load();
+    let current = json.get("plugin").and_then(Value::as_str).unwrap_or("").to_string();
+    let initial: Vec<String> = json
+        .get("options")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let lines = StoredValue::new(initial);
+
+    let set_lines = move |new: Vec<String>| {
+        lines.set_value(new.clone());
+        update_step(&|s| set_field(s, "options", Value::Array(new.iter().cloned().map(Value::from).collect())));
+    };
+
+    view! {
+        {move || match plugins.get() {
+            None => view! { <p class="muted small">"Loading plugins…"</p> }.into_any(),
+            Some(Err(e)) => view! { <p class="error small">{e}</p> }.into_any(),
+            Some(Ok(list)) => {
+                let current = current.clone();
+                let installed = list.iter().any(|p| p.id == current);
+                let chosen = list.iter().find(|p| p.id == current).cloned();
+                let empty = list.is_empty();
+                let missing = (!current.is_empty() && !installed).then(|| current.clone());
+                let options = list
+                    .iter()
+                    .map(|p| {
+                        let label = if p.error.is_some() { format!("{} (broken: see Settings → Plugins)", p.name) } else { p.name.clone() };
+                        let selected = p.id == current;
+                        view! { <option value=p.id.clone() selected=selected>{label}</option> }
+                    })
+                    .collect_view();
+                view! {
+                    <label class="field">
+                        <span class="label">"Plugin"</span>
+                        <select on:change=move |ev| {
+                            let id = event_target_value(&ev);
+                            update_step(&|s| set_field(s, "plugin", Value::from(id.clone())));
+                        }>
+                            <option value="" selected=current.is_empty()>"Choose a plugin…"</option>
+                            {missing.map(|m| view! { <option value=m.clone() selected=true>{format!("{m} (not installed)")}</option> })}
+                            {options}
+                        </select>
+                        {empty.then(|| view! {
+                            <span class="hint">
+                                "No plugins installed. Copy a plugin folder (with a plugin.toml) into this workspace's plugins folder, then "
+                                <button class="link small" on:click=move |_| load()>"refresh"</button>
+                                ". "
+                                <button class="link small" on:click=move |_| {
+                                    spawn_local(async move {
+                                        let _ = api::open_plugins_folder().await;
+                                    });
+                                }>"Open plugins folder"</button>
+                            </span>
+                        })}
+                    </label>
+                    {chosen.map(|p| {
+                        let values = option_pairs(&lines.get_value());
+                        let no_options = p.options.is_empty();
+                        view! {
+                            {p.description.clone().map(|d| view! { <p class="small">{d}</p> })}
+                            <p class="mono muted small">{p.command.join(" ")}</p>
+                            {p.error.clone().map(|e| view! { <p class="error small">{e}</p> })}
+                            <div class="grid-2">
+                                {p.options.iter().map(|o| {
+                                    let key = o.key.clone();
+                                    let value = values.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone()).unwrap_or_default();
+                                    let help = (!o.help.is_empty()).then(|| o.help.clone());
+                                    view! {
+                                        <label class="field">
+                                            <span class="label mono">{o.key.clone()}</span>
+                                            <input
+                                                type="text"
+                                                placeholder=format!("default: {}", o.default)
+                                                prop:value=value
+                                                on:change=move |ev| set_lines(set_option(&lines.get_value(), &key, &event_target_value(&ev)))
+                                            />
+                                            {help.map(|h| view! { <span class="hint">{h}</span> })}
+                                        </label>
+                                    }
+                                }).collect_view()}
+                            </div>
+                            {no_options.then(|| view! { <p class="muted small">"This plugin has no options."</p> })}
+                        }
+                    })}
+                }
+                    .into_any()
+            }
+        }}
+    }
+}
+
+#[cfg(test)]
+mod plugin_option_tests {
+    use super::*;
+
+    #[test]
+    fn options_are_set_replaced_and_cleared_without_touching_others() {
+        let lines = vec!["words=a,b".to_string(), "custom = 1".to_string()];
+        let set = set_option(&lines, "max_per_1000_words", "5");
+        assert_eq!(set, vec!["words=a,b", "custom = 1", "max_per_1000_words=5"]);
+        let replaced = set_option(&set, "words", "x");
+        assert_eq!(
+            option_pairs(&replaced),
+            vec![("custom".into(), "1".into()), ("max_per_1000_words".into(), "5".into()), ("words".into(), "x".into())]
+        );
+        let cleared = set_option(&replaced, "words", "  ");
+        assert!(!cleared.iter().any(|l| l.starts_with("words")), "empty means: use the default");
     }
 }

@@ -182,6 +182,12 @@ pub const SNIPPETS: &[Snippet] = &[
     Snippet { group: "Quality", label: "Exact duplicate texts", sql: "SELECT md5(text) AS hash, count(*) AS copies, any_value(left(text, 120)) AS start\nFROM {t}\nGROUP BY hash\nHAVING copies > 1\nORDER BY copies DESC\nLIMIT 100;" },
     Snippet { group: "Quality", label: "Repeated first lines", sql: "SELECT split_part(text, chr(10), 1) AS first_line, count(*) AS docs\nFROM {t}\nGROUP BY 1\nHAVING docs > 5\nORDER BY docs DESC\nLIMIT 50;" },
     Snippet { group: "Quality", label: "Mostly non-letters", sql: "SELECT id, left(text, 200) AS start\nFROM {t}\nWHERE length(regexp_replace(text, '[^[:alpha:]]', '', 'g')) < 0.5 * length(text)\nLIMIT 100;" },
+    Snippet { group: "Quality", label: "Score histogram", sql: "-- Scores saved by an LLM score step in \"Keep all, save the score\" mode
+SELECT round((meta->>'llm_score')::DOUBLE) AS score, count(*) AS docs
+FROM {t}
+WHERE meta->>'llm_score' IS NOT NULL
+GROUP BY 1
+ORDER BY 1;" },
     Snippet { group: "Quality", label: "Leftover HTML", sql: "SELECT id, left(text, 200) AS start\nFROM {t}\nWHERE regexp_matches(text, '</?(div|span|a|p|br)[ >]')\nLIMIT 100;" },
     Snippet { group: "Runs", label: "Removed by step and rule", sql: "SELECT step_index, rule, count(*) AS docs\nFROM {r}\nGROUP BY ALL\nORDER BY docs DESC;" },
     Snippet { group: "Runs", label: "Removed examples for a rule", sql: "SELECT detail, left(text, 200) AS start\nFROM {r}\nWHERE rule = 'min_words'\nLIMIT 50;" },

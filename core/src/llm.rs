@@ -13,18 +13,71 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use aeon_shared::{LlmOnError, LlmRewrite, LlmScore};
+use aeon_shared::{LlmOnError, LlmRewrite, LlmScore, ScoreMode};
 use regex::Regex;
 use serde_json::{Value, json};
 
 use crate::error::{AppError, AppResult};
 use crate::pipeline::Abort;
-use crate::pipeline::steps::{Step, Verdict};
+use crate::pipeline::steps::{Step, Tags, Verdict};
 
 const RETRIES: u32 = 3;
 const TIMEOUT: Duration = Duration::from_secs(180);
 
+/// Answers saved in the workspace (`cache/llm.sqlite`), keyed by everything that decides the
+/// answer: URL, model, token limit, temperature and the full prompt with the document. Shared
+/// by the steps of one run; other processes (the CLI, the API) may use it at the same time.
+pub struct LlmCache {
+    conn: std::sync::Mutex<rusqlite::Connection>,
+}
+
+impl LlmCache {
+    pub fn open(path: &std::path::Path) -> AppResult<Self> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let conn = rusqlite::Connection::open(path)?;
+        conn.busy_timeout(Duration::from_secs(10))?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;
+             CREATE TABLE IF NOT EXISTS answers (
+                 key TEXT PRIMARY KEY,
+                 answer TEXT NOT NULL,
+                 created_ms INTEGER NOT NULL
+             );",
+        )?;
+        Ok(Self { conn: std::sync::Mutex::new(conn) })
+    }
+
+    fn key(parts: &[&str]) -> String {
+        let mut joined = String::from("v1");
+        for p in parts {
+            joined.push('\u{0}');
+            joined.push_str(p);
+        }
+        format!("{:032x}", xxhash_rust::xxh3::xxh3_128(joined.as_bytes()))
+    }
+
+    fn get(&self, key: &str) -> Option<String> {
+        let conn = self.conn.lock().ok()?;
+        conn.query_row("SELECT answer FROM answers WHERE key = ?1", [key], |r| r.get(0)).ok()
+    }
+
+    fn put(&self, key: &str, answer: &str) {
+        if let Ok(conn) = self.conn.lock()
+            && let Err(e) = conn.execute(
+                "INSERT OR REPLACE INTO answers (key, answer, created_ms) VALUES (?1, ?2, ?3)",
+                rusqlite::params![key, answer, crate::error::now_ms()],
+            )
+        {
+            log::warn!("could not save an LLM answer in the cache: {e}");
+        }
+    }
+}
+
 pub struct LlmClient {
+    cache: Option<Arc<LlmCache>>,
     agent: ureq::Agent,
     url: String,
     model: String,
@@ -67,6 +120,7 @@ impl LlmClient {
             format!("{endpoint}/chat/completions")
         };
         Ok(Self {
+            cache: None,
             agent,
             url,
             model: model.trim().to_string(),
@@ -86,7 +140,21 @@ impl LlmClient {
     }
 
     /// One chat completion, retried on network errors, 429 and 5xx.
+    /// One chat completion, from the cache when it has the answer.
     pub fn complete(&self, prompt: &str, max_tokens: u64, temperature: f64) -> Result<String, String> {
+        let Some(cache) = &self.cache else {
+            return self.request(prompt, max_tokens, temperature);
+        };
+        let key = LlmCache::key(&[&self.url, &self.model, &max_tokens.to_string(), &temperature.to_string(), prompt]);
+        if let Some(answer) = cache.get(&key) {
+            return Ok(answer);
+        }
+        let answer = self.request(prompt, max_tokens, temperature)?;
+        cache.put(&key, &answer);
+        Ok(answer)
+    }
+
+    fn request(&self, prompt: &str, max_tokens: u64, temperature: f64) -> Result<String, String> {
         let mut last = String::new();
         let mut attempt = 0;
         while attempt <= RETRIES {
@@ -199,14 +267,32 @@ impl ScoreStep {
 /// Answer tokens for a score: enough for "Score: 4" with some preamble.
 const SCORE_TOKENS: u64 = 64;
 
+impl ScoreStep {
+    /// Saves and reuses answers in `cache`, when the step's settings allow it.
+    pub fn with_cache(mut self, cache: Option<Arc<LlmCache>>) -> Self {
+        if self.cfg.use_cache {
+            self.client.cache = cache;
+        }
+        self
+    }
+}
+
 impl Step for ScoreStep {
     fn apply(&self, text: &mut String) -> Verdict {
+        self.apply_tagged(text, &mut Tags::new())
+    }
+
+    fn apply_tagged(&self, text: &mut String, tags: &mut Tags) -> Verdict {
         if self.abort.is_set() {
             return Verdict::Unchanged;
         }
         let prompt = self.client.render(&self.cfg.prompt, text);
         match self.client.complete(&prompt, SCORE_TOKENS, 0.0) {
             Ok(answer) => match first_number(&answer) {
+                Some(score) if self.cfg.mode == ScoreMode::Tag => {
+                    tags.push((self.cfg.score_field.clone(), json!(score)));
+                    Verdict::Unchanged
+                }
                 Some(score) if score < self.cfg.min_score => Verdict::Drop {
                     rule: "llm_score_below",
                     detail: format!("score {score} < {}", self.cfg.min_score),
@@ -238,6 +324,16 @@ impl RewriteStep {
             cfg: cfg.clone(),
             abort,
         })
+    }
+}
+
+impl RewriteStep {
+    /// Saves and reuses answers in `cache`, when the step's settings allow it.
+    pub fn with_cache(mut self, cache: Option<Arc<LlmCache>>) -> Self {
+        if self.cfg.use_cache {
+            self.client.cache = cache;
+        }
+        self
     }
 }
 
@@ -362,6 +458,59 @@ pub(crate) mod tests {
         assert!(matches!(step.apply(&mut t), Verdict::Unchanged));
         assert!(!step.client.send_no_think.load(Ordering::Relaxed));
         let _ = calls;
+    }
+
+    #[test]
+    fn tag_mode_keeps_documents_and_saves_the_score() {
+        let (url, _) = fake_server(|p| (200, if p.contains("great") { "4".into() } else { "1".into() }));
+        let step = ScoreStep::new(
+            &LlmScore { endpoint: url, mode: ScoreMode::Tag, score_field: "edu".into(), ..LlmScore::default() },
+            Default::default(),
+        )
+        .unwrap();
+        let mut tags = Tags::new();
+        let mut t = "junk".to_string();
+        assert!(matches!(step.apply_tagged(&mut t, &mut tags), Verdict::Unchanged), "kept despite the low score");
+        let mut t = "great".to_string();
+        assert!(matches!(step.apply_tagged(&mut t, &mut tags), Verdict::Unchanged));
+        assert_eq!(tags, vec![("edu".to_string(), json!(1.0)), ("edu".to_string(), json!(4.0))]);
+    }
+
+    #[test]
+    fn cached_answers_are_reused_across_steps_and_settings_matter() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Arc::new(LlmCache::open(&dir.path().join("cache").join("llm.sqlite")).unwrap());
+        let (url, calls) = fake_server(|p| (200, format!("R:{}", p.len())));
+        let make = |prompt: &str, use_cache: bool| {
+            RewriteStep::new(
+                &LlmRewrite { endpoint: url.clone(), prompt: prompt.into(), use_cache, ..LlmRewrite::default() },
+                Default::default(),
+            )
+            .unwrap()
+            .with_cache(Some(cache.clone()))
+        };
+        let first = make("Rewrite: {text}", true);
+        for doc in ["a", "b", "a"] {
+            let mut t = doc.to_string();
+            first.apply(&mut t);
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), 2, "the repeated document came from the cache");
+        // A new step (a new run) with the same settings asks the server nothing.
+        let again = make("Rewrite: {text}", true);
+        let mut t = "b".to_string();
+        again.apply(&mut t);
+        assert_eq!(t, format!("R:{}", "Rewrite: b".len()));
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+        // A different prompt, or the cache turned off, does ask.
+        make("Other: {text}", true).apply(&mut "b".to_string());
+        make("Rewrite: {text}", false).apply(&mut "b".to_string());
+        assert_eq!(calls.load(Ordering::Relaxed), 4);
+        // And the cache survives reopening.
+        drop(first);
+        drop(again);
+        let reopened = Arc::new(LlmCache::open(&dir.path().join("cache").join("llm.sqlite")).unwrap());
+        let key = LlmCache::key(&[&format!("{url}/chat/completions"), "llama3.2", "1024", "0.7", "Rewrite: a"]);
+        assert_eq!(reopened.get(&key).as_deref(), Some(format!("R:{}", "Rewrite: a".len()).as_str()));
     }
 
     #[test]

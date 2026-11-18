@@ -122,7 +122,10 @@ impl Workspace {
 
     /// What pipeline steps need from this workspace.
     pub fn step_env(&self) -> crate::pipeline::StepEnv {
-        crate::pipeline::StepEnv { plugins_dir: Some(self.plugins_dir()) }
+        crate::pipeline::StepEnv {
+            plugins_dir: Some(self.plugins_dir()),
+            llm_cache: Some(self.root.join("cache").join("llm.sqlite")),
+        }
     }
 
     /// Folder of a run. The id is validated so it can't point outside the workspace.

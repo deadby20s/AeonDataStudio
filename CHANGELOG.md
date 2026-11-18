@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+- **Plugin picker**: a Plugin step lists the installed plugins and shows each plugin's options
+  as fields, with its defaults as placeholders.
+- **Score instead of drop**: an LLM quality score step can keep every document and save the
+  score in its metadata (Mode → Keep all, save the score). Plugins can save fields the same way
+  (`"tags"` in their answer). A new SQL snippet, Score histogram, helps choose the threshold.
+- **Saved model answers**: LLM steps save answers in the workspace (`cache/llm.sqlite`) and
+  reuse them for the same model, prompt and document, so previews and re-runs don't pay twice.
+
 ### Changed
 - Dual-licensed: AeonDataStudio is now available under the MIT license **or** the Apache
   License 2.0, at your option (`LICENSE-MIT`, `LICENSE-APACHE`). Apache-2.0 adds an explicit

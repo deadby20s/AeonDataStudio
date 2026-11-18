@@ -134,9 +134,9 @@ documents a table `removed_<run>`.
 ## Plugins and language models
 
 - **Plugins.** Install a plugin by copying its folder into the workspace's plugins folder
-  (Settings → Plugins → Open plugins folder). Then add a **Plugin** step to a pipeline and type
-  the plugin's folder name. Options go in the step as `key=value` lines. Settings → Plugins
-  lists what's installed and the options each plugin takes. See [plugins.md](plugins.md).
+  (Settings → Plugins → Open plugins folder). Then add a **Plugin** step to a pipeline and
+  pick the plugin from the list. Its options appear as fields, with the plugin's defaults shown
+  as placeholders; leave a field empty to use the default. See [plugins.md](plugins.md).
 - **Language models.** **LLM quality score** and **LLM rewrite** steps work with any
   OpenAI-compatible server. The default is Ollama on this computer
   (`http://localhost:11434/v1`). For a hosted API, put its URL in **Server URL**, and put the
@@ -144,6 +144,13 @@ documents a table `removed_<run>`.
   `OPENAI_API_KEY`).
 - **Data recipes.** The quickest start is **New pipeline… → Recipe: …**. Previews of these
   pipelines use at most 50 documents, because each document is one model request.
+- **Score now, decide later.** Set an **LLM quality score** step's **Mode** to **Keep all,
+  save the score**. Every document is kept with its score in its metadata. In **SQL**,
+  **Snippets → Score histogram** shows how scores are spread; pick a threshold there and
+  filter with a second run, without asking the model again.
+- **Saved answers.** Model answers are saved in the workspace (`cache/llm.sqlite`), so a
+  preview followed by the run, or a re-run, doesn't pay for the same documents twice. Turn
+  **Reuse saved answers** off in a step to always ask the model.
 
 ## Automation: CLI, API and MCP
 

@@ -99,7 +99,7 @@ step at about 127 MB/s, every other step runs at 450 MB/s or more. Benchmark:
 | Step (`kind`) | What it does |
 |---|---|
 | `plugin` | Runs a program from the workspace's `plugins/` folder on each document. It can keep, drop (rule `plugin`, with the plugin's reason) or rewrite the document. See [plugins.md](plugins.md). |
-| `llm_score` | Sends each document (cut to `max_input_chars`) to an OpenAI-compatible `/chat/completions` endpoint with `prompt` (`{text}` is replaced). It reads the first number of the answer as the score and drops documents below `min_score` (rule `llm_score_below`). The default prompt is a 0–5 educational-value scale, as in FineWeb-Edu. |
+| `llm_score` | Sends each document (cut to `max_input_chars`) to an OpenAI-compatible `/chat/completions` endpoint with `prompt` (`{text}` is replaced). It reads the first number of the answer as the score. With `mode = "filter"` it drops documents below `min_score` (rule `llm_score_below`); with `mode = "tag"` it keeps every document and saves the score in its metadata (`score_field`, default `llm_score`), so you can choose a threshold later in SQL (**Snippets → Score histogram**) without asking the model again. The default prompt is a 0–5 educational-value scale, as in FineWeb-Edu. |
 | `llm_rewrite` | Replaces each document with the model's answer to `prompt`. Use it to rephrase (WRAP, Maini et al., 2024), summarize, translate or generate synthetic data. |
 
 How the LLM steps behave:
@@ -119,6 +119,12 @@ How the LLM steps behave:
   them, so a model there would see every document several times, and duplicates would be paid
   for.
 - **Previews.** Previews of pipelines with LLM steps use at most 50 documents.
+- **Saved answers.** With `use_cache` (on by default), answers are saved in the workspace's
+  `cache/llm.sqlite`. The key is the server URL, model, token limit, temperature and the full
+  prompt with the document. Running the same step again on the same documents (a preview,
+  then the run, or a re-run with a different threshold) asks the model nothing. Delete the
+  `cache` folder to start fresh. Turn the cache off for a rewrite step to get new answers
+  each run (with a temperature above 0, answers differ).
 
 Measured with a small local model (Gemma 4 E2B, Q4, llama.cpp, one consumer GPU, 8 parallel
 slots): 50 documents scored in 14 s.
