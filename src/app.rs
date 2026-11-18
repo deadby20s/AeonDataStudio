@@ -2,6 +2,7 @@ use aeon_shared::{JobState, JobStatus, WorkspaceInfo};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
+use crate::logo::Logo;
 use crate::api;
 use crate::datasets::DatasetsPage;
 use crate::pages::{JobsPage, SettingsPage, WelcomePage};
@@ -183,7 +184,7 @@ fn Shell() -> impl IntoView {
         <div class="shell">
             <nav class="sidebar">
                 <div class="brand">
-                    <img src="public/logo.svg" alt="" class="brand-mark"/>
+                    <Logo class="brand-mark"/>
                     <span>"AeonDataStudio"</span>
                 </div>
                 <div class="workspace-chip" title=move || ctx.workspace.with(|w| w.as_ref().map(|w| w.path.clone()).unwrap_or_default())>
