@@ -59,6 +59,9 @@ preview or run and stops them afterwards. It talks to them with JSON lines:
   - `{"keep": false, "reason": "..."}`: drop it. The reason is shown in the Inspector, with
     rule `plugin`.
   - `{"text": "..."}`: keep it with new text.
+  - Any answer can add `"tags": {"quality": 0.82, "topic": "cooking"}`. These fields are saved
+    in a kept document's metadata (`meta->>'quality'` in SQL), so a classifier can **score
+    instead of drop** and you choose the threshold later.
 - **Options** arrive as a JSON object in the `AEON_PLUGIN_OPTIONS` environment variable.
 - **stderr** goes to the app log (Settings → Logs), so print debugging output there, never to
   stdout.

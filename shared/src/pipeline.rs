@@ -414,6 +414,25 @@ pub enum LlmOnError {
     Drop,
 }
 
+/// What a score step does with the score.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScoreMode {
+    /// Drop documents scoring below the minimum.
+    #[default]
+    Filter,
+    /// Keep every document and save the score in its metadata, to choose a threshold later.
+    Tag,
+}
+
+fn default_score_field() -> String {
+    "llm_score".into()
+}
+
+fn yes_default() -> bool {
+    true
+}
+
 /// Default server: Ollama's OpenAI-compatible endpoint on this computer.
 pub const DEFAULT_LLM_ENDPOINT: &str = "http://localhost:11434/v1";
 pub const DEFAULT_LLM_MODEL: &str = "llama3.2";
@@ -430,10 +449,18 @@ pub struct LlmScore {
     pub api_key_env: String,
     /// `{text}` is replaced by the document. The answer's first number is the score.
     pub prompt: String,
+    /// `filter` drops documents below `min_score`; `tag` keeps all and saves the score.
+    pub mode: ScoreMode,
     pub min_score: f64,
+    /// Metadata field the score is saved in (tag mode).
+    #[serde(default = "default_score_field")]
+    pub score_field: String,
     /// Longer documents are cut to this many characters before sending.
     pub max_input_chars: u64,
     pub on_error: LlmOnError,
+    /// Reuse answers saved in the workspace for the same model, prompt and document.
+    #[serde(default = "yes_default")]
+    pub use_cache: bool,
 }
 
 impl Default for LlmScore {
@@ -443,9 +470,12 @@ impl Default for LlmScore {
             model: DEFAULT_LLM_MODEL.into(),
             api_key_env: String::new(),
             prompt: EDU_SCORE_PROMPT.into(),
+            mode: ScoreMode::Filter,
             min_score: 3.0,
+            score_field: default_score_field(),
             max_input_chars: 6000,
             on_error: LlmOnError::Stop,
+            use_cache: true,
         }
     }
 }
@@ -464,6 +494,9 @@ pub struct LlmRewrite {
     pub max_tokens: u64,
     pub max_input_chars: u64,
     pub on_error: LlmOnError,
+    /// Reuse answers saved in the workspace for the same model, prompt and document.
+    #[serde(default = "yes_default")]
+    pub use_cache: bool,
 }
 
 impl Default for LlmRewrite {
@@ -477,6 +510,7 @@ impl Default for LlmRewrite {
             max_tokens: 1024,
             max_input_chars: 6000,
             on_error: LlmOnError::Stop,
+            use_cache: true,
         }
     }
 }
@@ -778,9 +812,12 @@ pub static STEP_KINDS: &[StepKindInfo] = &[
             field("model", "Model", Text, ""),
             field("api_key_env", "API key variable", Text, "Name of the environment variable with the API key, e.g. OPENAI_API_KEY. Empty for local servers. The key itself is never saved."),
             field("prompt", "Prompt", LongText, "{text} is replaced by the document. The first number in the answer is the score."),
-            field("min_score", "Min score", Number, "Documents scoring lower are dropped."),
+            field("mode", "Mode", Choice(&[("filter", "Drop low scores"), ("tag", "Keep all, save the score")]), "Save the score to try thresholds later (SQL → Score histogram) without asking the model again."),
+            field("min_score", "Min score", Number, "Drop low scores: documents scoring lower are dropped."),
+            field("score_field", "Score field", Text, "Keep all: the metadata field the score is saved in, e.g. llm_score (meta->>'llm_score' in SQL)."),
             field("max_input_chars", "Max characters sent", Count, "Longer documents are cut."),
             field("on_error", "When a request fails", Choice(&[("stop", "Stop the run"), ("keep", "Keep the document"), ("drop", "Drop the document")]), "Requests are retried 3 times first."),
+            field("use_cache", "Reuse saved answers", Bool, "Answers are saved in the workspace (cache/llm.sqlite); re-running with the same model, prompt and document costs nothing."),
         ],
         default: || StepConfig::LlmScore(LlmScore::default()),
     },
@@ -798,6 +835,7 @@ pub static STEP_KINDS: &[StepKindInfo] = &[
             field("max_tokens", "Max answer tokens", Count, ""),
             field("max_input_chars", "Max characters sent", Count, "Longer documents are cut."),
             field("on_error", "When a request fails", Choice(&[("stop", "Stop the run"), ("keep", "Keep the document"), ("drop", "Drop the document")]), "Requests are retried 3 times first."),
+            field("use_cache", "Reuse saved answers", Bool, "Answers are saved in the workspace (cache/llm.sqlite). Turn off to get a fresh answer each run (with temperature above 0, answers differ)."),
         ],
         default: || StepConfig::LlmRewrite(LlmRewrite::default()),
     },

@@ -34,7 +34,7 @@ use serde::Deserialize;
 
 use crate::error::{AppError, AppResult};
 use crate::pipeline::Abort;
-use crate::pipeline::steps::{Step, Verdict};
+use crate::pipeline::steps::{Step, Tags, Verdict};
 
 pub const MANIFEST: &str = "plugin.toml";
 
@@ -179,6 +179,9 @@ struct Answer {
     reason: Option<String>,
     #[serde(default)]
     text: Option<String>,
+    /// Metadata fields to save on the document (kept documents only).
+    #[serde(default)]
+    tags: serde_json::Map<String, serde_json::Value>,
 }
 
 fn yes() -> bool {
@@ -299,6 +302,10 @@ fn truncate(s: &str) -> String {
 
 impl Step for PluginRunner {
     fn apply(&self, text: &mut String) -> Verdict {
+        self.apply_tagged(text, &mut Tags::new())
+    }
+
+    fn apply_tagged(&self, text: &mut String, tags: &mut Tags) -> Verdict {
         if self.abort.is_set() {
             return Verdict::Unchanged;
         }
@@ -310,6 +317,7 @@ impl Step for PluginRunner {
                 return Verdict::Unchanged;
             }
         };
+        tags.extend(answer.tags);
         if !answer.keep {
             return Verdict::Drop {
                 rule: "plugin",
@@ -351,6 +359,8 @@ for line in sys.stdin:
         print(json.dumps({"keep": False, "reason": "contains " + word}), flush=True)
     elif "shout" in text:
         print(json.dumps({"text": text.upper()}), flush=True)
+    elif "score" in text:
+        print(json.dumps({"tags": {"quality": 0.75}}), flush=True)
     else:
         print("{}", flush=True)
 "#;
@@ -389,6 +399,10 @@ for line in sys.stdin:
         let mut t = "please shout".to_string();
         assert!(matches!(runner.apply(&mut t), Verdict::Changed));
         assert_eq!(t, "PLEASE SHOUT");
+        let mut tags = Tags::new();
+        let mut t = "score me".to_string();
+        assert!(matches!(runner.apply_tagged(&mut t, &mut tags), Verdict::Unchanged));
+        assert_eq!(tags, vec![("quality".to_string(), serde_json::json!(0.75))]);
 
         // Used from many threads at once.
         use rayon::prelude::*;

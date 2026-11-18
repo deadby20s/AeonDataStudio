@@ -60,6 +60,8 @@ impl Abort {
 pub struct StepEnv {
     /// The workspace's `plugins/` folder.
     pub plugins_dir: Option<PathBuf>,
+    /// Where language-model answers are saved for reuse (`cache/llm.sqlite`).
+    pub llm_cache: Option<PathBuf>,
 }
 
 /// Checks a recipe without running it, so mistakes show up before a job starts. Plugins are
@@ -134,6 +136,8 @@ pub struct Outcome {
     pub chars_in: u64,
     /// Characters after each step the document passed.
     pub chars_after: Vec<u64>,
+    /// Metadata fields steps added (scores in "tag" mode, plugin tags), in step order.
+    pub tags: steps::Tags,
 }
 
 impl Pipeline {
@@ -161,6 +165,16 @@ impl Pipeline {
             )));
         }
         let abort = std::sync::Arc::new(Abort::default());
+        // One answer cache for all model steps of this pipeline, opened only when one uses it.
+        let wants_cache = enabled.iter().any(|(_, s)| match &s.config {
+            StepConfig::LlmScore(c) => c.use_cache,
+            StepConfig::LlmRewrite(c) => c.use_cache,
+            _ => false,
+        });
+        let cache = match (&env.llm_cache, wants_cache) {
+            (Some(path), true) => Some(std::sync::Arc::new(crate::llm::LlmCache::open(path)?)),
+            _ => None,
+        };
         let mut steps = Vec::new();
         for (index, s) in enabled {
             let info = s.config.info();
@@ -173,8 +187,8 @@ impl Pipeline {
                         crate::plugins::PluginRunner::new(env.plugins_dir.as_deref(), c, abort.clone()).map_err(context)?,
                     )
                 }
-                StepConfig::LlmScore(c) => StepImpl::Doc(Box::new(crate::llm::ScoreStep::new(c, abort.clone()).map_err(context)?)),
-                StepConfig::LlmRewrite(c) => StepImpl::Doc(Box::new(crate::llm::RewriteStep::new(c, abort.clone()).map_err(context)?)),
+                StepConfig::LlmScore(c) => StepImpl::Doc(Box::new(crate::llm::ScoreStep::new(c, abort.clone()).map_err(context)?.with_cache(cache.clone()))),
+                StepConfig::LlmRewrite(c) => StepImpl::Doc(Box::new(crate::llm::RewriteStep::new(c, abort.clone()).map_err(context)?.with_cache(cache.clone()))),
                 other => StepImpl::Doc(steps::build(other).map_err(context)?),
             };
             steps.push(CompiledStep { index: index as u64, kind: info.kind, label: info.label.to_string(), imp });
@@ -238,21 +252,23 @@ impl Pipeline {
         let mut chars = chars_in;
         let mut modified = 0u64;
         let mut chars_after = Vec::with_capacity(self.steps.len());
-        let outcome = |text, dropped, reached_stop, modified, chars_after| Outcome {
+        let mut tags = steps::Tags::new();
+        let outcome = |text, dropped, reached_stop, modified, chars_after, tags| Outcome {
             text,
             dropped,
             reached_stop,
             modified,
             chars_in,
             chars_after,
+            tags,
         };
         for (pos, s) in self.steps.iter().enumerate() {
             if stop_at == Some(pos) {
-                return outcome(text, None, true, modified, chars_after);
+                return outcome(text, None, true, modified, chars_after, tags);
             }
             let verdict = match &s.imp {
-                StepImpl::Doc(step) => step.apply(&mut text),
-                StepImpl::Plugin(p) => p.apply(&mut text),
+                StepImpl::Doc(step) => step.apply_tagged(&mut text, &mut tags),
+                StepImpl::Plugin(p) => p.apply_tagged(&mut text, &mut tags),
                 StepImpl::Dedup(method) => match decisions.by_pos.get(&pos).and_then(|d| d.get(&row)) {
                     Some(&kept) => {
                         let dropped = Dropped {
@@ -261,7 +277,7 @@ impl Pipeline {
                             detail: format!("duplicate of input row {}", kept + 1),
                             related_row: Some(kept),
                         };
-                        return outcome(text, Some(dropped), false, modified, chars_after);
+                        return outcome(text, Some(dropped), false, modified, chars_after, tags);
                     }
                     None => Verdict::Unchanged,
                 },
@@ -274,17 +290,17 @@ impl Pipeline {
                     if text.trim().is_empty() {
                         let dropped =
                             Dropped { pos, rule: EMPTY_AFTER_STEP, detail: "no text left".into(), related_row: None };
-                        return outcome(text, Some(dropped), false, modified, chars_after);
+                        return outcome(text, Some(dropped), false, modified, chars_after, tags);
                     }
                 }
                 Verdict::Drop { rule, detail } => {
                     let dropped = Dropped { pos, rule, detail, related_row: None };
-                    return outcome(text, Some(dropped), false, modified, chars_after);
+                    return outcome(text, Some(dropped), false, modified, chars_after, tags);
                 }
             }
             chars_after.push(chars);
         }
-        outcome(text, None, false, modified, chars_after)
+        outcome(text, None, false, modified, chars_after, tags)
     }
 }
 
